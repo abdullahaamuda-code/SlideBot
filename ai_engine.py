@@ -2,15 +2,12 @@ import os
 from dotenv import load_dotenv
 from google import genai
 from groq import Groq
-from mistralai.client import MistralClient
-from mistralai.models.chat_completion import ChatMessage
 import json
 
 load_dotenv()
 
 gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-mistral_client = MistralClient(api_key=os.getenv("MISTRAL_API_KEY"))
 
 PROMPT_TEMPLATE = """
 You are a professional presentation designer.
@@ -90,22 +87,6 @@ def generate_with_groq(user_input, num_slides):
         print(f"Groq failed: {e}")
         return None
 
-def generate_with_mistral(user_input, num_slides):
-    try:
-        prompt = PROMPT_TEMPLATE.format(
-            user_input=user_input,
-            num_slides=num_slides
-        )
-        response = mistral_client.chat(
-            model="mistral-small-latest",
-            messages=[ChatMessage(role="user", content=prompt)]
-        )
-        text = clean_json(response.choices[0].message.content)
-        return json.loads(text)
-    except Exception as e:
-        print(f"Mistral failed: {e}")
-        return None
-
 def generate_slide_content(user_input, num_slides=8):
     print("Trying Gemini...")
     result = generate_with_gemini(user_input, num_slides)
@@ -117,12 +98,6 @@ def generate_slide_content(user_input, num_slides=8):
     result = generate_with_groq(user_input, num_slides)
     if result:
         print("Groq succeeded ✅")
-        return result
-
-    print("Trying Mistral...")
-    result = generate_with_mistral(user_input, num_slides)
-    if result:
-        print("Mistral succeeded ✅")
         return result
 
     print("All AIs failed ❌")
