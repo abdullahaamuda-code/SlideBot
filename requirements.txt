@@ -37,7 +37,6 @@ jsonpath-python==1.1.5
 lxml==6.0.3
 markdown-it-py==4.0.0
 mdurl==0.1.2
-mistralai==0.1.8
 mmh3==5.2.1
 multidict==6.7.1
 opentelemetry-api==1.39.1
