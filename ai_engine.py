@@ -47,19 +47,19 @@ Rules:
 - Do not include any explanations, markdown, comments, or extra text outside the JSON object
 """
 
-def clean_json(text):
+def clean_json(text: str) -> str:
     text = text.strip()
     if "```json" in text:
         text = text.split("```json").split("```").strip()[1]
     elif "```" in text:
-        text = text.split("```")[1].split("```")[0].strip()
+        text = text.split("```")[11].split("```")[0].strip()
     start = text.find("{")
     end = text.rfind("}") + 1
     if start != -1 and end != 0:
         text = text[start:end]
     return text
 
-def enforce_summary_and_bullets(struct):
+def enforce_summary_and_bullets(struct: dict) -> dict:
     """
     Safety net:
     - Ensure last slide is a proper summary (not 'review the main concepts...')
@@ -90,7 +90,6 @@ def enforce_summary_and_bullets(struct):
         ]
         joined = " ".join(last_slide.get("bullets", [])).lower()
         if any(p in joined for p in generic_phrases):
-            # Replace with a generic but proper summary scaffold
             last_slide["bullets"] = [
                 "Recap the core topic and its importance",
                 "Highlight the main ideas covered in the slides",
@@ -101,7 +100,7 @@ def enforce_summary_and_bullets(struct):
     struct["slides"] = slides
     return struct
 
-def generate_with_gemini(user_input, num_slides):
+def generate_with_gemini(user_input: str, num_slides: int):
     try:
         prompt = PROMPT_TEMPLATE.format(
             user_input=user_input,
@@ -118,7 +117,7 @@ def generate_with_gemini(user_input, num_slides):
         print(f"Gemini failed: {e}")
         return None
 
-def generate_with_groq(user_input, num_slides):
+def generate_with_groq(user_input: str, num_slides: int):
     try:
         prompt = PROMPT_TEMPLATE.format(
             user_input=user_input,
@@ -136,7 +135,7 @@ def generate_with_groq(user_input, num_slides):
         print(f"Groq failed: {e}")
         return None
 
-def generate_slide_content(user_input, num_slides=8):
+def generate_slide_content(user_input: str, num_slides: int = 8):
     print("Trying Gemini...")
     result = generate_with_gemini(user_input, num_slides)
     if result:
@@ -151,3 +150,9 @@ def generate_slide_content(user_input, num_slides=8):
 
     print("All AIs failed ❌")
     return None
+
+def generate_from_text(user_input: str, num_slides: int = 8):
+    """
+    Convenience wrapper so other parts of the app can just call this with raw text.
+    """
+    return generate_slide_content(user_input=user_input, num_slides=num_slides)
