@@ -1,60 +1,90 @@
 import os
 import json
+import re
 from groq import Groq
+from dotenv import load_dotenv
+
+load_dotenv()
 
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
-def generate_slide_content(topic, num_slides=8):
-    """Simple, reliable slide generation"""
-    
-    prompt = f"""Create a {num_slides}-slide presentation about "{topic}".
+PROMPT_TEMPLATE = """Create a professional PowerPoint presentation about "{topic}" with exactly {num_slides} slides.
 
-Return ONLY this JSON format, nothing else:
+IMPORTANT: Each slide MUST have:
+- A heading
+- An explanation paragraph (2-3 sentences explaining the concept)
+- 3-4 bullet points
+- An image keyword (one word for Unsplash)
+
+Slide structure:
+- Slide 1: INTRODUCTION - Explain the topic and why it matters
+- Slides 2 to {num_slides-1}: CONTENT SLIDES - Each with explanation + bullet points
+- Slide {num_slides}: CONCLUSION - Summarize key points and give action items
+
+Return ONLY valid JSON. No markdown.
+
+Format:
 {{
     "title": "Presentation Title",
     "slides": [
         {{
-            "heading": "Slide Title",
-            "bullets": ["Point 1", "Point 2", "Point 3"],
-            "image_keyword": "business"
+            "heading": "Introduction to [Topic]",
+            "explanation": "2-3 sentences explaining what this slide covers and why it matters...",
+            "bullets": ["First key point", "Second key point", "Third key point"],
+            "image_keyword": "introduction"
         }}
     ]
-}}
+}}"""
 
-Make slide 1 an introduction, the last slide a conclusion, and the rest content slides."""
+def clean_json(text):
+    text = text.strip()
+    text = re.sub(r'```json\s*|\s*```', '', text)
+    match = re.search(r'\{.*\}', text, re.DOTALL)
+    if match:
+        text = match.group(0)
+    return text
+
+def generate_slide_content(topic, num_slides=8):
+    print(f"🎨 Generating {num_slides} slides about: {topic}")
     
     try:
         response = groq_client.chat.completions.create(
             model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.7
+            messages=[{"role": "user", "content": PROMPT_TEMPLATE.format(topic=topic, num_slides=num_slides)}],
+            temperature=0.7,
+            max_tokens=4000
         )
         
-        text = response.choices[0].message.content
-        # Clean up
-        text = text.replace("```json", "").replace("```", "").strip()
-        
-        # Find JSON
-        start = text.find("{")
-        end = text.rfind("}") + 1
-        if start != -1 and end != 0:
-            text = text[start:end]
-        
+        text = clean_json(response.choices[0].message.content)
         data = json.loads(text)
+        
+        # Ensure correct number of slides
+        slides = data.get("slides", [])
+        while len(slides) < num_slides:
+            slides.append({
+                "heading": f"Key Insight {len(slides)+1}",
+                "explanation": f"This section explores important aspects of {topic}.",
+                "bullets": ["Important point to consider", "Key strategy for success", "Actionable takeaway"],
+                "image_keyword": "business"
+            })
+        
+        data["slides"] = slides[:num_slides]
         return data
         
     except Exception as e:
         print(f"Error: {e}")
-        # Simple fallback
-        return {
-            "title": f"About {topic}",
-            "slides": [
-                {"heading": f"Introduction to {topic}", "bullets": [f"What is {topic}", "Why it matters", "What you'll learn"], "image_keyword": "introduction"},
-                {"heading": "Key Benefits", "bullets": ["First major benefit", "Second important benefit", "Third key advantage"], "image_keyword": "success"},
-                {"heading": "Conclusion", "bullets": ["Main takeaways", "Action steps", "Next steps"], "image_keyword": "future"}
-            ]
-        }
+        return generate_fallback(topic, num_slides)
 
-def generate_from_text(text, num_slides=8):
-    """Simple text-based generation"""
+def generate_from_text(raw_text, num_slides=8):
     return generate_slide_content("the provided content", num_slides)
+
+def generate_fallback(topic, num_slides):
+    slides = []
+    for i in range(num_slides):
+        if i == 0:
+            slides.append({"heading": f"Introduction to {topic}", "explanation": f"This presentation explores {topic} and its key concepts.", "bullets": ["What you need to know", "Why this matters", "What you'll learn"], "image_keyword": "introduction"})
+        elif i == num_slides - 1:
+            slides.append({"heading": "Conclusion", "explanation": "Key takeaways from this presentation.", "bullets": ["Review main points", "Take action", "Continue learning"], "image_keyword": "success"})
+        else:
+            slides.append({"heading": f"Key Point {i}", "explanation": f"Important aspect of {topic}.", "bullets": ["First insight", "Second insight", "Third insight"], "image_keyword": "business"})
+    return {"title": f"About {topic}", "slides": slides}
