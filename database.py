@@ -1,30 +1,25 @@
 import os
-import json
 from datetime import datetime
+from supabase import create_client
 
-DB_FILE = "users.json"
-
-def load_db():
-    if not os.path.exists(DB_FILE):
-        with open(DB_FILE, "w") as f:
-            json.dump({}, f)
-    with open(DB_FILE, "r") as f:
-        return json.load(f)
-
-def save_db(data):
-    with open(DB_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+url = os.getenv("SUPABASE_URL")
+key = os.getenv("SUPABASE_KEY")
+supabase = create_client(url, key)
 
 def get_user(telegram_id: str):
-    db = load_db()
-    return db.get(str(telegram_id), None)
+    try:
+        result = supabase.table("users").select("*").eq("telegram_id", str(telegram_id)).execute()
+        if result.data:
+            return result.data[0]
+        return None
+    except Exception as e:
+        print(f"get_user error: {e}")
+        return None
 
 def create_user(telegram_id: str, username: str):
-    db = load_db()
-    uid = str(telegram_id)
-    if uid not in db:
-        db[uid] = {
-            "telegram_id": uid,
+    try:
+        user = {
+            "telegram_id": str(telegram_id),
             "username": username,
             "is_premium": False,
             "slides_today": 0,
@@ -35,10 +30,13 @@ def create_user(telegram_id: str, username: str):
             "premium_date": None,
             "url_uses_this_month": 0,
             "file_uses_this_month": 0,
-            "last_month_reset": str(datetime.now().strftime("%Y-%m")),
+            "last_month_reset": datetime.now().strftime("%Y-%m"),
         }
-        save_db(db)
-    return db[uid]
+        supabase.table("users").insert(user).execute()
+        return user
+    except Exception as e:
+        print(f"create_user error: {e}")
+        return None
 
 def get_or_create_user(telegram_id: str, username: str):
     user = get_user(telegram_id)
@@ -46,120 +44,176 @@ def get_or_create_user(telegram_id: str, username: str):
         user = create_user(telegram_id, username)
     return user
 
-def reset_daily_count_if_needed(telegram_id: str):
-    db = load_db()
-    uid = str(telegram_id)
-    user = db.get(uid)
-    if not user:
-        return
-    today = str(datetime.now().date())
-    if user["last_used_date"] != today:
-        db[uid]["slides_today"] = 0
-        db[uid]["last_used_date"] = today
-        save_db(db)
+def reset_daily_if_needed(telegram_id: str):
+    try:
+        user = get_user(telegram_id)
+        if not user:
+            return
+        today = str(datetime.now().date())
+        if user["last_used_date"] != today:
+            supabase.table("users").update({
+                "slides_today": 0,
+                "last_used_date": today
+            }).eq("telegram_id", str(telegram_id)).execute()
+    except Exception as e:
+        print(f"reset_daily error: {e}")
 
 def reset_monthly_if_needed(telegram_id: str):
-    db = load_db()
-    uid = str(telegram_id)
-    user = db.get(uid)
-    if not user:
-        return
-    current_month = datetime.now().strftime("%Y-%m")
-    if user.get("last_month_reset") != current_month:
-        db[uid]["url_uses_this_month"] = 0
-        db[uid]["file_uses_this_month"] = 0
-        db[uid]["last_month_reset"] = current_month
-        save_db(db)
+    try:
+        user = get_user(telegram_id)
+        if not user:
+            return
+        current_month = datetime.now().strftime("%Y-%m")
+        if user.get("last_month_reset") != current_month:
+            supabase.table("users").update({
+                "url_uses_this_month": 0,
+                "file_uses_this_month": 0,
+                "last_month_reset": current_month
+            }).eq("telegram_id", str(telegram_id)).execute()
+    except Exception as e:
+        print(f"reset_monthly error: {e}")
 
 def increment_usage(telegram_id: str):
-    db = load_db()
-    uid = str(telegram_id)
-    db[uid]["slides_today"] += 1
-    db[uid]["total_presentations"] += 1
-    save_db(db)
+    try:
+        user = get_user(telegram_id)
+        if not user:
+            return
+        supabase.table("users").update({
+            "slides_today": user["slides_today"] + 1,
+            "total_presentations": user["total_presentations"] + 1
+        }).eq("telegram_id", str(telegram_id)).execute()
+    except Exception as e:
+        print(f"increment_usage error: {e}")
 
 def increment_url_usage(telegram_id: str):
-    reset_monthly_if_needed(telegram_id)
-    db = load_db()
-    uid = str(telegram_id)
-    db[uid]["url_uses_this_month"] = db[uid].get("url_uses_this_month", 0) + 1
-    save_db(db)
+    try:
+        reset_monthly_if_needed(telegram_id)
+        user = get_user(telegram_id)
+        if not user:
+            return
+        supabase.table("users").update({
+            "url_uses_this_month": user.get("url_uses_this_month", 0) + 1
+        }).eq("telegram_id", str(telegram_id)).execute()
+    except Exception as e:
+        print(f"increment_url error: {e}")
 
 def increment_file_usage(telegram_id: str):
-    reset_monthly_if_needed(telegram_id)
-    db = load_db()
-    uid = str(telegram_id)
-    db[uid]["file_uses_this_month"] = db[uid].get("file_uses_this_month", 0) + 1
-    save_db(db)
-
-def can_use_url(telegram_id: str) -> bool:
-    reset_monthly_if_needed(telegram_id)
-    user = get_user(str(telegram_id))
-    if not user:
-        return True
-    if user.get("is_premium"):
-        return True
-    return user.get("url_uses_this_month", 0) < 1
-
-def can_use_file(telegram_id: str) -> bool:
-    reset_monthly_if_needed(telegram_id)
-    user = get_user(str(telegram_id))
-    if not user:
-        return True
-    if user.get("is_premium"):
-        return True
-    return user.get("file_uses_this_month", 0) < 1
-
-def is_premium(telegram_id: str) -> bool:
-    user = get_user(str(telegram_id))
-    if not user:
-        return False
-    return user.get("is_premium", False)
+    try:
+        reset_monthly_if_needed(telegram_id)
+        user = get_user(telegram_id)
+        if not user:
+            return
+        supabase.table("users").update({
+            "file_uses_this_month": user.get("file_uses_this_month", 0) + 1
+        }).eq("telegram_id", str(telegram_id)).execute()
+    except Exception as e:
+        print(f"increment_file error: {e}")
 
 def can_generate(telegram_id: str) -> bool:
-    reset_daily_count_if_needed(telegram_id)
-    user = get_user(str(telegram_id))
-    if not user:
+    try:
+        reset_daily_if_needed(telegram_id)
+        user = get_user(telegram_id)
+        if not user:
+            return True
+        if user["is_premium"]:
+            return True
+        return user["slides_today"] < 2
+    except Exception as e:
+        print(f"can_generate error: {e}")
         return True
-    if user["is_premium"]:
+
+def can_use_url(telegram_id: str) -> bool:
+    try:
+        reset_monthly_if_needed(telegram_id)
+        user = get_user(telegram_id)
+        if not user:
+            return True
+        if user["is_premium"]:
+            return True
+        return user.get("url_uses_this_month", 0) < 1
+    except Exception as e:
+        print(f"can_use_url error: {e}")
         return True
-    return user["slides_today"] < 2
+
+def can_use_file(telegram_id: str) -> bool:
+    try:
+        reset_monthly_if_needed(telegram_id)
+        user = get_user(telegram_id)
+        if not user:
+            return True
+        if user["is_premium"]:
+            return True
+        return user.get("file_uses_this_month", 0) < 1
+    except Exception as e:
+        print(f"can_use_file error: {e}")
+        return True
+
+def is_premium(telegram_id: str) -> bool:
+    try:
+        user = get_user(str(telegram_id))
+        if not user:
+            return False
+        return user.get("is_premium", False)
+    except Exception as e:
+        print(f"is_premium error: {e}")
+        return False
 
 def activate_premium(telegram_id: str, activated_by: str):
-    db = load_db()
-    uid = str(telegram_id)
-    if uid in db:
-        db[uid]["is_premium"] = True
-        db[uid]["premium_activated_by"] = activated_by
-        db[uid]["premium_date"] = str(datetime.now())
-        save_db(db)
+    try:
+        user = get_user(str(telegram_id))
+        if not user:
+            return False
+        supabase.table("users").update({
+            "is_premium": True,
+            "premium_activated_by": activated_by,
+            "premium_date": str(datetime.now())
+        }).eq("telegram_id", str(telegram_id)).execute()
         return True
-    return False
+    except Exception as e:
+        print(f"activate_premium error: {e}")
+        return False
 
 def revoke_premium(telegram_id: str):
-    db = load_db()
-    uid = str(telegram_id)
-    if uid in db:
-        db[uid]["is_premium"] = False
-        save_db(db)
+    try:
+        user = get_user(str(telegram_id))
+        if not user:
+            return False
+        supabase.table("users").update({
+            "is_premium": False
+        }).eq("telegram_id", str(telegram_id)).execute()
         return True
-    return False
+    except Exception as e:
+        print(f"revoke_premium error: {e}")
+        return False
 
 def get_all_users():
-    return load_db()
+    try:
+        result = supabase.table("users").select("*").execute()
+        return {u["telegram_id"]: u for u in result.data}
+    except Exception as e:
+        print(f"get_all_users error: {e}")
+        return {}
 
 def get_premium_users():
-    db = load_db()
-    return {uid: u for uid, u in db.items() if u.get("is_premium")}
+    try:
+        result = supabase.table("users").select("*").eq("is_premium", True).execute()
+        return {u["telegram_id"]: u for u in result.data}
+    except Exception as e:
+        print(f"get_premium_users error: {e}")
+        return {}
 
 def get_total_stats():
-    db = load_db()
-    total = len(db)
-    premium = sum(1 for u in db.values() if u.get("is_premium"))
-    total_slides = sum(u.get("total_presentations", 0) for u in db.values())
-    return {
-        "total_users": total,
-        "premium_users": premium,
-        "free_users": total - premium,
-        "total_slides_generated": total_slides
-    }
+    try:
+        all_users = supabase.table("users").select("*").execute().data
+        total = len(all_users)
+        premium = sum(1 for u in all_users if u.get("is_premium"))
+        total_slides = sum(u.get("total_presentations", 0) for u in all_users)
+        return {
+            "total_users": total,
+            "premium_users": premium,
+            "free_users": total - premium,
+            "total_slides_generated": total_slides
+        }
+    except Exception as e:
+        print(f"get_total_stats error: {e}")
+        return {"total_users": 0, "premium_users": 0, "free_users": 0, "total_slides_generated": 0}
