@@ -31,6 +31,7 @@ def create_user(telegram_id: str, username: str):
             "url_uses_this_month": 0,
             "file_uses_this_month": 0,
             "last_month_reset": datetime.now().strftime("%Y-%m"),
+            "theme": "classic",  # NEW: default theme
         }
         supabase.table("users").insert(user).execute()
         return user
@@ -217,3 +218,41 @@ def get_total_stats():
     except Exception as e:
         print(f"get_total_stats error: {e}")
         return {"total_users": 0, "premium_users": 0, "free_users": 0, "total_slides_generated": 0}
+
+
+# ========== NEW FUNCTIONS FOR THEME MANAGEMENT ==========
+
+def get_user_theme(telegram_id: str) -> str:
+    """Get user's saved theme preference"""
+    try:
+        user = get_user(str(telegram_id))
+        if not user:
+            return "classic"
+        return user.get("theme", "classic")
+    except Exception as e:
+        print(f"get_user_theme error: {e}")
+        return "classic"
+
+def save_user_theme(telegram_id: str, theme: str):
+    """Save user's theme preference to database"""
+    try:
+        supabase.table("users").update({
+            "theme": theme
+        }).eq("telegram_id", str(telegram_id)).execute()
+        return True
+    except Exception as e:
+        print(f"save_user_theme error: {e}")
+        return False
+
+def get_today_usage(telegram_id: str) -> int:
+    """Get user's usage count for today"""
+    try:
+        user = get_user(str(telegram_id))
+        if not user:
+            return 0
+        reset_daily_if_needed(telegram_id)
+        user = get_user(str(telegram_id))
+        return user.get("slides_today", 0)
+    except Exception as e:
+        print(f"get_today_usage error: {e}")
+        return 0
