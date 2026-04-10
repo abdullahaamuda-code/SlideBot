@@ -89,11 +89,18 @@ def get_slide_count_keyboard(user_id: str):
 
 # ─── GUIDED FLOW WITH BETTER UX ──────────────────────────────────
 async def ask_for_slide_count(update: Update, context: ContextTypes.DEFAULT_TYPE, message=None):
+    """Ask user for number of slides"""
     msg = message or update.message
+    uid = str(update.effective_user.id)
+    premium = is_premium(uid)
+    
+    # Make sure we have the current topic
+    current_topic = context.user_data.get("pending_topic", "your topic")
+    print(f"📝 Asking for slide count for topic: {current_topic[:50]}...")
+    
     await msg.reply_text(
-        "📊 **How many slides do you need?**\n\n"
-        f"{'✨ Premium: up to 30 slides' if is_premium(str(update.effective_user.id)) else 'Free: up to 8 slides'}",
-        reply_markup=get_slide_count_keyboard(str(update.effective_user.id)),
+        f"📊 **How many slides do you need?**\n\nTopic: *{current_topic[:100]}*\n\n{ '✨ Premium: up to 30 slides' if premium else 'Free: up to 8 slides'}",
+        reply_markup=get_slide_count_keyboard(uid),
         parse_mode="Markdown"
     )
 
@@ -134,22 +141,32 @@ async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 # ─── COMMANDS ─────────────────────────────────────────────────────
+# Replace your existing start function with this:
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle /start command - ONLY for when user types /start"""
     user = update.effective_user
     uid = str(user.id)
+    
+    # Create/get user
     get_or_create_user(uid, str(user.username or user.first_name))
     
-    # Load saved theme if exists
-    from database import get_user_theme, save_user_theme
+    # Load saved theme
     saved_theme = get_user_theme(uid)
-    if saved_theme:
-        context.user_data["theme"] = saved_theme
+    context.user_data["theme"] = saved_theme
     
+    # Clear any pending data from previous sessions
+    context.user_data.clear()
+    context.user_data["theme"] = saved_theme
+    
+    # Main welcome keyboard
     keyboard = [
         [InlineKeyboardButton("📖 How to use", callback_data="show_help")],
         [InlineKeyboardButton("🎨 Change Theme", callback_data="change_theme")],
-        [InlineKeyboardButton("💎 Upgrade to Premium", callback_data="show_upgrade")]
+        [InlineKeyboardButton("💎 Upgrade to Premium", callback_data="show_upgrade")],
+        [InlineKeyboardButton("📊 My Status", callback_data="show_status")]
     ]
+    
     await update.message.reply_text(
         f"✨ **Hey {user.first_name}!** ✨\n\n"
         "Welcome to **SlideBot** — your AI presentation designer.\n\n"
@@ -159,29 +176,43 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• *My business pitch*\n"
         "• *Digital marketing trends*\n\n"
         "📎 Or send me a **URL, PDF, or Word doc** to convert!\n\n"
-        f"{'🎨 Current theme: ' + saved_theme.title() if saved_theme else '🎨 Pick a theme below'}",
+        f"🎨 **Current theme:** {saved_theme.title()}",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
 
-async def change_theme_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+# REMOVE this if you have it - this is the duplicate handler
+# async def start_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+#     """Handle start button callback - THIS SHOULD NOT EXIST"""
+#     pass
+
+
+# Instead, use this for the "Start Over" or "New Presentation" button if you want one:
+
+async def new_presentation_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle 'New Presentation' button - clears context and starts fresh"""
     query = update.callback_query
     await query.answer()
+    
     uid = str(query.from_user.id)
+    saved_theme = get_user_theme(uid)
+    
+    # Clear all pending data
+    context.user_data.clear()
+    context.user_data["theme"] = saved_theme
+    
     await query.edit_message_text(
-        "🎨 **Choose your slide style**\n\n"
-        "• **Classic** — Professional blue tones\n"
-        "• **Dark** — Bold modern look\n"
-        "• **Corporate** — Business formal\n"
-        "• **Startup** — Vibrant & energetic\n"
-        "• **Academic** — Clean scholarly\n"
-        "• **Minimal** — Simple elegant\n\n"
-        f"{'🔓 All themes unlocked!' if is_premium(uid) else '🔒 Premium themes require upgrade'}",
-        reply_markup=get_theme_keyboard(uid, context.user_data.get("theme")),
+        "🆕 **Ready to create a new presentation!**\n\n"
+        "Just type your topic below and I'll get started 🚀",
         parse_mode="Markdown"
     )
 
+
+# Update your help callback to NOT show a start button:
+
 async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle help button callback"""
     query = update.callback_query
     await query.answer()
     uid = str(query.from_user.id)
@@ -201,35 +232,110 @@ async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
     if premium:
-        help_text += "💎 **Your plan: Premium**\n• Unlimited decks\n• Up to 30 slides\n• All themes\n• Priority support"
+        help_text += "💎 **Premium:** Unlimited access • 30 slides • All themes"
     else:
-        help_text += "📊 **Your plan: Free**\n• 2 decks/day\n• Up to 8 slides\n• Classic & Dark themes\n\nType /upgrade for unlimited! 💎"
+        help_text += "📊 **Free:** 2 decks/day • 8 slides • Basic themes\n\nType /upgrade for unlimited! 💎"
     
-    keyboard = [[InlineKeyboardButton("🎨 Change Theme", callback_data="change_theme")]]
-    await query.edit_message_text(help_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    # Only show back button, NOT another start button
+    keyboard = [[InlineKeyboardButton("◀️ Back", callback_data="back_to_start")]]
+    
+    await query.edit_message_text(
+        help_text, 
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
 
-async def show_upgrade_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+
+async def back_to_start_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle back button - returns to main menu"""
     query = update.callback_query
     await query.answer()
+    
+    uid = str(query.from_user.id)
+    saved_theme = get_user_theme(uid)
+    
+    keyboard = [
+        [InlineKeyboardButton("📖 How to use", callback_data="show_help")],
+        [InlineKeyboardButton("🎨 Change Theme", callback_data="change_theme")],
+        [InlineKeyboardButton("💎 Upgrade to Premium", callback_data="show_upgrade")],
+        [InlineKeyboardButton("📊 My Status", callback_data="show_status")]
+    ]
+    
+    await query.edit_message_text(
+        f"✨ **Welcome back!** ✨\n\n"
+        "Ready to create another presentation?\n\n"
+        "📝 **Just type any topic** and I'll get started!\n\n"
+        f"🎨 **Current theme:** {saved_theme.title()}",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+
+
+async def change_theme_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle change theme button callback"""
+    query = update.callback_query
+    await query.answer()
+    uid = str(query.from_user.id)
+    current = get_user_theme(uid)
+    
+    keyboard = get_theme_keyboard(uid, current)
+    
+    await query.edit_message_text(
+        f"🎨 **Choose your slide style**\n\nCurrent: **{current.title()}**\n\n"
+        f"{'🔓 All themes unlocked!' if is_premium(uid) else '🔒 Premium themes require upgrade'}",
+        reply_markup=keyboard,
+        parse_mode="Markdown"
+    )
+
+
+async def show_status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle status button callback"""
+    query = update.callback_query
+    await query.answer()
+    uid = str(query.from_user.id)
+    premium = is_premium(uid)
+    used_today = get_today_usage(uid)
+    theme = get_user_theme(uid)
+    
+    plan = "💎 Premium" if premium else "📊 Free"
+    remaining = "Unlimited" if premium else max(0, 2 - used_today)
+    
+    keyboard = [[InlineKeyboardButton("◀️ Back", callback_data="back_to_start")]]
+    
+    await query.edit_message_text(
+        f"**Your SlideBot Status**\n\n"
+        f"📌 **Plan:** {plan}\n"
+        f"🎨 **Theme:** {theme.title()}\n"
+        f"✅ **Used today:** {used_today if not premium else '∞'}\n"
+        f"🎯 **Remaining:** {remaining}\n\n"
+        f"Type /upgrade to go Premium 💎",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+
+
+async def show_upgrade_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle upgrade button callback"""
+    query = update.callback_query
+    await query.answer()
+    
+    keyboard = [[InlineKeyboardButton("◀️ Back", callback_data="back_to_start")]]
+    
     await query.edit_message_text(
         "💎 **SlideBot Premium — ₦500/month**\n\n"
         "**What you unlock:**\n"
         "✅ Unlimited presentations\n"
-        "✅ Up to 30 slides per deck\n"
+        "✅ Up to 30 slides\n"
         "✅ All 6 premium themes\n"
-        "✅ Unlimited URL → Slides\n"
-        "✅ Unlimited PDF/Word → Slides\n"
-        "✅ No watermarks\n"
+        "✅ Unlimited URL/file uploads\n"
         "✅ Priority support\n\n"
-        "**How to pay:**\n"
-        "Bank: MONIEPOINT MFB\n"
-        "Name: Abdullah Abdulgafar-Amuda\n"
-        "Account: 8169936326\n\n"
-        "After payment, send your receipt screenshot here,\n"
-        "then type /paid 🙏",
+        "**Pay:** MONIEPOINT MFB\n"
+        "Account: 8169936326\n"
+        "Name: Abdullah Abdulgafar-Amuda\n\n"
+        "Send receipt then /paid",
+        reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
-
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     uid = str(user.id)
@@ -536,43 +642,45 @@ async def start_generation(query, context, topic, num_slides, theme, raw_text=No
 
 # ─── MESSAGE HANDLER ──────────────────────────────────────────────
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle text messages - CLEAR OLD CONTEXT FIRST"""
     user = update.effective_user
     uid = str(user.id)
     text = update.message.text.strip()
+    
+    # 🔥 CRITICAL FIX: Clear old context to prevent reusing old topics
+    # Only keep theme preference if it exists
+    saved_theme = context.user_data.get("theme", None)
+    context.user_data.clear()
+    if saved_theme:
+        context.user_data["theme"] = saved_theme
+    
     get_or_create_user(uid, str(user.username or user.first_name))
-
+    
     # URL detection
-    if text.startswith("http://") or text.startswith("https://"):
+    if text.startswith(("http://", "https://")):
         if not can_use_url(uid):
             await update.message.reply_text(
-                "🔒 **URL limit reached**\n\n"
-                "You've used your free URL slot for this month.\n\n"
-                "💎 **Upgrade to Premium** for unlimited URL → slides!\n"
-                "Type /upgrade to unlock 🚀",
+                "🔒 **URL limit reached**\n\nUpgrade to Premium for unlimited URL → slides!\nType /upgrade 🚀",
                 parse_mode="Markdown"
             )
             return
         await handle_url(update, context, text)
         return
-
+    
     # Check daily limit
     if not can_generate(uid):
         await update.message.reply_text(
-            "📊 **Daily limit reached**\n\n"
-            "You've used your 2 free presentations for today.\n\n"
-            "💎 **Upgrade to Premium** for:\n"
-            "• Unlimited presentations\n"
-            "• Up to 30 slides\n"
-            "• All premium themes\n"
-            "• Unlimited URL/file uploads\n\n"
-            "Type /upgrade to get unlimited access! 🚀",
+            "📊 **Daily limit reached**\n\nYou've used your 2 free presentations for today.\n\n💎 Type /upgrade for unlimited access! 🚀",
             parse_mode="Markdown"
         )
         return
     
+    # Store the NEW topic
     context.user_data["pending_topic"] = text
+    # Clear any old raw_text
+    context.user_data.pop("pending_raw_text", None)
+    
     await ask_for_slide_count(update, context)
-
 
 # ─── URL HANDLER ──────────────────────────────────────────────────
 async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
@@ -750,12 +858,17 @@ async def main():
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("premiumlist", premiumlist_command))
 
-    app.add_handler(CallbackQueryHandler(slide_count_callback, pattern="^slides_"))
-    app.add_handler(CallbackQueryHandler(theme_callback, pattern="^theme_"))
-    app.add_handler(CallbackQueryHandler(cancel_callback, pattern="^cancel$"))
+# In your main() function, update the callback handlers:
+
     app.add_handler(CallbackQueryHandler(help_callback, pattern="^show_help$"))
+    app.add_handler(CallbackQueryHandler(show_status_callback, pattern="^show_status$"))
     app.add_handler(CallbackQueryHandler(change_theme_callback, pattern="^change_theme$"))
     app.add_handler(CallbackQueryHandler(show_upgrade_callback, pattern="^show_upgrade$"))
+    app.add_handler(CallbackQueryHandler(back_to_start_callback, pattern="^back_to_start$"))  # NEW
+    app.add_handler(CallbackQueryHandler(new_presentation_callback, pattern="^new_presentation$"))  # NEW
+    app.add_handler(CallbackQueryHandler(theme_callback, pattern="^theme_"))
+    app.add_handler(CallbackQueryHandler(slide_count_callback, pattern="^slides_"))
+    app.add_handler(CallbackQueryHandler(cancel_callback, pattern="^cancel$"))
 
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
