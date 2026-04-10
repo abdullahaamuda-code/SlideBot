@@ -93,6 +93,7 @@ async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     get_or_create_user(str(user.id), str(user.username or user.first_name))
+    keyboard = [[InlineKeyboardButton("🤖 How to use SlideBot", callback_data="show_help")]]
     await update.message.reply_text(
         f"Hey {user.first_name}! 👋\n\n"
         "Welcome to SlideBot — just type any topic and I'll turn it into a clean, professional PowerPoint in seconds.\n\n"
@@ -100,22 +101,88 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• Climate change in Africa\n"
         "• My business pitch\n"
         "• Solar energy benefits\n\n"
-        "Go ahead, type your topic 👇"
+        "Go ahead, type your topic 👇",
+        reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
+async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    uid = str(query.from_user.id)
+    premium = is_premium(uid)
+
+    if premium:
+        await query.message.reply_text(
+            "Here's how SlideBot works:\n\n"
+            "1. Type your topic\n"
+            "2. Choose how many slides\n"
+            "3. Pick a theme\n"
+            "4. Download your PPTX\n\n"
+            "Your plan: 💎 Premium\n"
+            "Unlimited decks, up to 30 slides, all themes unlocked\n\n"
+            "/upgrade — manage your plan\n"
+            "/status — check your usage\n"
+            "/theme — change your style\n\n"
+            "Having an issue? Tap below to contact support 👇",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    "💬 Contact Support",
+                    url="https://t.me/abdullahaamuda"
+                )
+            ]])
+        )
+    else:
+        await query.message.reply_text(
+            "Here's how SlideBot works:\n\n"
+            "1. Type your topic\n"
+            "2. Choose how many slides\n"
+            "3. Pick a theme\n"
+            "4. Download your PPTX\n\n"
+            "Your plan: Free\n"
+            "2 decks a day, up to 8 slides\n\n"
+            "/upgrade — go Premium for unlimited access 💎\n"
+            "/status — check your usage\n"
+            "/theme — change your style"
+        )
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "Here's how SlideBot works:\n\n"
-        "1. Type your topic\n"
-        "2. Choose how many slides\n"
-        "3. Pick a theme\n"
-        "4. Download your PPTX\n\n"
-        "Free plan: 2 decks a day, up to 8 slides\n"
-        "Premium (₦2,500/month): unlimited decks, up to 30 slides, all themes\n\n"
-        "/upgrade — go Premium\n"
-        "/status — check your plan\n"
-        "/theme — change your style"
-    )
+    user = update.effective_user
+    uid = str(user.id)
+    get_or_create_user(uid, str(user.username or user.first_name))
+    premium = is_premium(uid)
+
+    if premium:
+        await update.message.reply_text(
+            "Here's how SlideBot works:\n\n"
+            "1. Type your topic\n"
+            "2. Choose how many slides\n"
+            "3. Pick a theme\n"
+            "4. Download your PPTX\n\n"
+            "Your plan: 💎 Premium\n"
+            "Unlimited decks, up to 30 slides, all themes unlocked\n\n"
+            "/upgrade — manage your plan\n"
+            "/status — check your usage\n"
+            "/theme — change your style\n\n"
+            "Having an issue? Tap below to contact support 👇",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    "💬 Contact Support",
+                    url="https://t.me/abdullahaamuda"
+                )
+            ]])
+        )
+    else:
+        await update.message.reply_text(
+            "Here's how SlideBot works:\n\n"
+            "1. Type your topic\n"
+            "2. Choose how many slides\n"
+            "3. Pick a theme\n"
+            "4. Download your PPTX\n\n"
+            "Your plan: Free\n"
+            "2 decks a day, up to 8 slides\n\n"
+            "/upgrade — go Premium for unlimited access 💎\n"
+            "/status — check your usage\n"
+            "/theme — change your style"
+        )
 
 async def theme_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
