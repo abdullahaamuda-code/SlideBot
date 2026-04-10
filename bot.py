@@ -431,6 +431,7 @@ async def main():
 
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+    app.add_handler(CallbackQueryHandler(help_callback, pattern="^show_help$"))
 
     print("🚀 SlideBot is running!")
     await app.initialize()
