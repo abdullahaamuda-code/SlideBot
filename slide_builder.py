@@ -93,12 +93,11 @@ SLIDE_W = Inches(13.33)
 SLIDE_H = Inches(7.5)
 
 
-# ─── UNSPLASH IMAGE FETCH (ROBUST) ────────────────────────────────
+# ─── UNSPLASH IMAGE FETCH ────────────────────────────────────────
 def fetch_unsplash_image(keyword: str):
-    """Fetch a random Unsplash image as BytesIO, with good logging."""
     try:
         if not UNSPLASH_KEY:
-            print("❌ No Unsplash key found (UNSPLASH_ACCESS_KEY missing)")
+            print("❌ No Unsplash key found")
             return None
 
         query = keyword or "business"
@@ -116,27 +115,21 @@ def fetch_unsplash_image(keyword: str):
         if resp.status_code == 200:
             data = resp.json()
             img_url = data["urls"]["regular"]
-            print(f"🖼 Got image URL: {img_url[:80]}...")
             img_resp = requests.get(img_url, timeout=15)
-            print(f"🖼 Image download status: {img_resp.status_code}")
             if img_resp.status_code == 200:
                 print("✅ Image fetched successfully")
                 bio = BytesIO(img_resp.content)
                 bio.seek(0)
                 return bio
-            else:
-                print(f"❌ Failed to download image bytes: {img_resp.text[:200]}")
         elif resp.status_code == 401:
-            print("❌ Unsplash 401 Unauthorized — invalid or missing access key")
+            print("❌ Unsplash 401 Unauthorized")
         elif resp.status_code == 403:
-            print("❌ Unsplash 403 Forbidden — key invalid/not approved/rate-limited")
+            print("❌ Unsplash 403 Forbidden")
         else:
-            print(f"❌ Unsplash error {resp.status_code}: {resp.text[:200]}")
+            print(f"❌ Unsplash error {resp.status_code}")
 
-    except requests.Timeout:
-        print(f"❌ Unsplash timeout for '{keyword}'")
     except Exception as e:
-        print(f"❌ Unsplash failed for '{keyword}': {e}")
+        print(f"❌ Unsplash failed: {e}")
 
     return None
 
@@ -217,15 +210,13 @@ def add_text(
 
 
 def add_image_to_slide(slide, image_stream, left, top, width, height):
-    """Add image from BytesIO to slide; ensures pointer is at start."""
     try:
         if hasattr(image_stream, "seek"):
             image_stream.seek(0)
         slide.shapes.add_picture(image_stream, left, top, width, height)
-        print("✅ Image inserted into slide")
         return True
     except Exception as e:
-        print(f"❌ Image insert failed: {e}")
+        print(f"Image insert failed: {e}")
         return False
 
 
@@ -246,14 +237,10 @@ def make_rounded_image(image_stream, radius=60):
         return out
     except Exception as e:
         print(f"Rounded image failed: {e}")
-        try:
-            image_stream.seek(0)
-        except Exception:
-            pass
         return image_stream
 
 
-# ─── TITLE SLIDE — Hero with full bleed image ─────────────────────
+# ─── TITLE SLIDE ─────────────────────────────────────────────────
 def build_title_slide(prs, title, theme, keyword="abstract"):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_bg(slide, theme["bg"])
@@ -302,7 +289,6 @@ def build_layout_1(prs, heading, bullets, theme, keyword):
         add_image_to_slide(slide, img, 0, 0, SLIDE_W, SLIDE_H)
 
     add_rect(slide, 0, 0, SLIDE_W, SLIDE_H, RGBColor(0x00, 0x00, 0x00), transparency=0.5)
-
     add_rect(slide, 0, Inches(7.2), SLIDE_W, Inches(0.3), theme["accent"])
 
     add_text(
@@ -378,7 +364,7 @@ def build_layout_2(prs, heading, bullets, theme, keyword):
         top += Inches(0.8)
 
 
-# ─── LAYOUT 3 — Card Grid with small image ────────────────────────
+# ─── LAYOUT 3 — Card Grid ────────────────────────────────────────
 def build_layout_3(prs, heading, bullets, theme, keyword):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_bg(slide, theme["bg"])
@@ -466,7 +452,7 @@ def build_layout_4(prs, heading, bullets, theme, keyword):
         top += Inches(0.8)
 
 
-# ─── LAYOUT 5 — Full Accent Quote + Small Image ───────────────────
+# ─── LAYOUT 5 — Quote Style ──────────────────────────────────────
 def build_layout_5(prs, heading, bullets, theme, keyword):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_bg(slide, theme["accent"])
@@ -523,7 +509,7 @@ def build_layout_5(prs, heading, bullets, theme, keyword):
         add_image_to_slide(slide, rounded, Inches(10.8), Inches(5.8), Inches(2.2), Inches(1.5))
 
 
-# ─── LAYOUT 6 — Minimal Two Column + Image ────────────────────────
+# ─── LAYOUT 6 — Minimal Two Column ────────────────────────────────
 def build_layout_6(prs, heading, bullets, theme, keyword):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_bg(slide, theme["bg"])
@@ -589,7 +575,7 @@ def build_layout_6(prs, heading, bullets, theme, keyword):
         add_image_to_slide(slide, rounded, Inches(11.0), Inches(6.0), Inches(2.0), Inches(1.3))
 
 
-# ─── THANK YOU SLIDE — Clean and elegant ──────────────────────────
+# ─── THANK YOU SLIDE ──────────────────────────────────────────────
 def build_thankyou_slide(prs, theme, is_premium: bool = False):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_bg(slide, theme["bg"])
@@ -645,11 +631,10 @@ def build_presentation(slide_data: dict, theme_name: str = "classic", is_premium
             {
                 "slide_number": int,
                 "heading": str,
-                "explanation": str,   # ignored in this builder, you use bullets
+                "explanation": str,   # Can be used later, but for now use bullets
                 "image_keyword": str,
                 "bullets": [str, ...]
-            },
-            ...
+            }
         ]
     }
     """
@@ -662,20 +647,28 @@ def build_presentation(slide_data: dict, theme_name: str = "classic", is_premium
     slides = slide_data.get("slides", [])
     title = slide_data.get("title", "My Presentation")
 
+    if not slides:
+        raise ValueError("No slides data provided")
+
     # Title slide
-    first_keyword = slides[0].get("image_keyword", "business") if slides else "business"
+    first_keyword = slides[0].get("image_keyword", "business")
     build_title_slide(prs, title, theme, first_keyword)
 
-    # Content slides with rotating layouts
-    content_slides = slides[1:-1] if len(slides) > 2 else slides
-    for idx, slide in enumerate(content_slides):
-        heading = slide.get("heading", "")
+    # Content slides (skip the first slide if it's intro? Actually use all except last for content)
+    # The AI already includes intro as first slide, so we use all slides except last as content
+    # Last slide will be handled as thank you? No, AI generates conclusion as last slide
+    # So we use ALL slides from the AI, no skipping
+    
+    for idx, slide in enumerate(slides):
+        heading = slide.get("heading", f"Slide {idx+1}")
         bullets = slide.get("bullets", [])
-        keyword = slide.get("image_keyword") or heading.split()[0] if heading else "business"
+        keyword = slide.get("image_keyword", "business")
+        
+        # Use different layouts for variety
         layout_fn = LAYOUTS[idx % len(LAYOUTS)]
         layout_fn(prs, heading, bullets, theme, keyword)
 
-    # Thank you slide
+    # Thank you slide (separate from AI slides)
     build_thankyou_slide(prs, theme, is_premium=is_premium)
 
     # Save the presentation
@@ -683,5 +676,6 @@ def build_presentation(slide_data: dict, theme_name: str = "classic", is_premium
     os.makedirs("outputs", exist_ok=True)
     filepath = os.path.join("outputs", filename)
     prs.save(filepath)
-
+    
+    print(f"✅ Presentation saved: {filepath}")
     return filepath
