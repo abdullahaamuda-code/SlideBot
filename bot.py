@@ -566,7 +566,7 @@ def run_ping_server():
     server = HTTPServer(("0.0.0.0", 8080), PingHandler)
     server.serve_forever()
 # ─── MAIN ─────────────────────────────────────────────────────────
-def main():
+async def main():
     Thread(target=run_ping_server, daemon=True).start()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
@@ -591,7 +591,14 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
     print("🚀 SlideBot is running!")
-    app.run_polling()
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+    await asyncio.Event().wait()    
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    import sys
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    asyncio.run(main())
