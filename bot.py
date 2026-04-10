@@ -256,7 +256,6 @@ async def back_to_start_callback(update: Update, context: ContextTypes.DEFAULT_T
     # Main welcome keyboard - same as /start
     keyboard = [
         [InlineKeyboardButton("📖 How to use", callback_data="show_help")],
-        [InlineKeyboardButton("🎨 Change Theme", callback_data="change_theme")],
         [InlineKeyboardButton("💎 Upgrade to Premium", callback_data="show_upgrade")],
         [InlineKeyboardButton("📊 My Status", callback_data="show_status")]
     ]
@@ -813,7 +812,7 @@ async def main():
     app.add_handler(CallbackQueryHandler(theme_callback, pattern="^theme_"))
     app.add_handler(CallbackQueryHandler(cancel_callback, pattern="^cancel$"))
     app.add_handler(CallbackQueryHandler(help_callback, pattern="^show_help$"))
-    app.add_handler(CallbackQueryHandler(change_theme_callback, pattern="^change_theme$"))
+   #  app.add_handler(CallbackQueryHandler(change_theme_callback, pattern="^change_theme$"))
     app.add_handler(CallbackQueryHandler(show_upgrade_callback, pattern="^show_upgrade$"))
     app.add_handler(CallbackQueryHandler(back_to_start_callback, pattern="^back_to_start$"))  # ADD THIS
     app.add_handler(CallbackQueryHandler(show_status_callback, pattern="^show_status$"))       # ADD THIS
