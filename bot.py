@@ -1,745 +1,776 @@
 import os
-import uuid
-import random
+import io
+import asyncio
+import logging
 import requests
-from io import BytesIO
-
+import trafilatura
+from threading import Thread
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from dotenv import load_dotenv
-from pptx import Presentation
-from pptx.util import Inches, Pt, Emu
-from pptx.dml.color import RGBColor
-from pptx.enum.text import PP_ALIGN, PP_PARAGRAPH_ALIGNMENT
-from pptx.enum.shapes import MSO_SHAPE
-
-from PIL import Image, ImageDraw
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder, CommandHandler, MessageHandler,
+    CallbackQueryHandler, ContextTypes, filters
+)
+from ai_engine import generate_slide_content, generate_from_text
+from slide_builder import build_presentation, FREE_THEMES, PREMIUM_THEMES
+from database import (
+    get_or_create_user, can_generate, increment_usage,
+    is_premium, activate_premium, revoke_premium,
+    get_premium_users, get_total_stats,
+    can_use_url, can_use_file,
+    increment_url_usage, increment_file_usage
+)
 
 load_dotenv()
 
-UNSPLASH_KEY = os.getenv("UNSPLASH_ACCESS_KEY")
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+ADMIN_ID = os.getenv("ADMIN_TELEGRAM_ID")
 
-# ─── THEMES — Premium corporate & Instagram-style color palettes ───
-THEMES = {
-    "classic": {
-        "bg": RGBColor(0xFF, 0xFF, 0xFF),
-        "title_color": RGBColor(0x1F, 0x39, 0x64),
-        "heading_color": RGBColor(0x1F, 0x39, 0x64),
-        "bullet_color": RGBColor(0x22, 0x22, 0x22),
-        "accent": RGBColor(0x1F, 0x39, 0x64),
-        "accent2": RGBColor(0x2E, 0x75, 0xB6),
-        "card_bg": RGBColor(0xEF, 0xF4, 0xFF),
-        "light_accent": RGBColor(0xD6, 0xE6, 0xF5),
-    },
-    "dark": {
-        "bg": RGBColor(0x1A, 0x1A, 0x2E),
-        "title_color": RGBColor(0xE9, 0x4C, 0x7D),
-        "heading_color": RGBColor(0xE9, 0x4C, 0x7D),
-        "bullet_color": RGBColor(0xFF, 0xFF, 0xFF),
-        "accent": RGBColor(0xE9, 0x4C, 0x7D),
-        "accent2": RGBColor(0x16, 0x21, 0x3E),
-        "card_bg": RGBColor(0x16, 0x21, 0x3E),
-        "light_accent": RGBColor(0x2A, 0x2A, 0x4A),
-    },
-    "corporate": {
-        "bg": RGBColor(0xF4, 0xF6, 0xF9),
-        "title_color": RGBColor(0x00, 0x4E, 0x92),
-        "heading_color": RGBColor(0x00, 0x4E, 0x92),
-        "bullet_color": RGBColor(0x33, 0x33, 0x33),
-        "accent": RGBColor(0x00, 0x4E, 0x92),
-        "accent2": RGBColor(0x00, 0x8B, 0xD2),
-        "card_bg": RGBColor(0xDF, 0xEE, 0xFF),
-        "light_accent": RGBColor(0xE8, 0xF0, 0xFE),
-    },
-    "startup": {
-        "bg": RGBColor(0xFF, 0xFF, 0xFF),
-        "title_color": RGBColor(0xFF, 0x6B, 0x35),
-        "heading_color": RGBColor(0xFF, 0x6B, 0x35),
-        "bullet_color": RGBColor(0x22, 0x22, 0x22),
-        "accent": RGBColor(0xFF, 0x6B, 0x35),
-        "accent2": RGBColor(0xFF, 0xA0, 0x6A),
-        "card_bg": RGBColor(0xFF, 0xF0, 0xE8),
-        "light_accent": RGBColor(0xFF, 0xE0, 0xD0),
-    },
-    "academic": {
-        "bg": RGBColor(0xFF, 0xFF, 0xFF),
-        "title_color": RGBColor(0x2E, 0x86, 0xAB),
-        "heading_color": RGBColor(0x2E, 0x86, 0xAB),
-        "bullet_color": RGBColor(0x22, 0x22, 0x22),
-        "accent": RGBColor(0x2E, 0x86, 0xAB),
-        "accent2": RGBColor(0xA2, 0x33, 0x2F),
-        "card_bg": RGBColor(0xE8, 0xF6, 0xFF),
-        "light_accent": RGBColor(0xD4, 0xEA, 0xF7),
-    },
-    "minimal": {
-        "bg": RGBColor(0xFA, 0xFA, 0xFA),
-        "title_color": RGBColor(0x11, 0x11, 0x11),
-        "heading_color": RGBColor(0x11, 0x11, 0x11),
-        "bullet_color": RGBColor(0x44, 0x44, 0x44),
-        "accent": RGBColor(0x11, 0x11, 0x11),
-        "accent2": RGBColor(0x88, 0x88, 0x88),
-        "card_bg": RGBColor(0xEE, 0xEE, 0xEE),
-        "light_accent": RGBColor(0xE0, 0xE0, 0xE0),
-    },
-}
-
-FREE_THEMES = ["classic", "dark"]
-PREMIUM_THEMES = ["corporate", "startup", "academic", "minimal"]
-
-SLIDE_W = Inches(13.33)
-SLIDE_H = Inches(7.5)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
-# ─── UNSPLASH IMAGE FETCH ─────────────────────────────────────────
-def fetch_unsplash_image(keyword: str):
-    try:
-        if not UNSPLASH_KEY:
-            print("❌ No Unsplash key found")
-            return None
+# ─── HELPERS ──────────────────────────────────────────────────────
+def is_admin(telegram_id: str) -> bool:
+    return str(telegram_id) == str(ADMIN_ID)
 
-        url = "https://api.unsplash.com/photos/random"
-        params = {
-            "query": keyword,
-            "orientation": "landscape",
-            "content_filter": "high",
-            "client_id": UNSPLASH_KEY,
-        }
-        print(f"🖼 Fetching Unsplash image for: {keyword}")
-        response = requests.get(url, params=params, timeout=15)
-        print(f"🖼 Unsplash status: {response.status_code}")
-
-        if response.status_code == 200:
-            data = response.json()
-            img_url = data["urls"]["regular"]
-            print(f"🖼 Got image URL: {img_url[:60]}")
-            img_response = requests.get(img_url, timeout=15)
-            print(f"🖼 Image download status: {img_response.status_code}")
-            if img_response.status_code == 200:
-                print("✅ Image fetched successfully")
-                return BytesIO(img_response.content)
-
-        elif response.status_code == 403:
-            print("❌ Unsplash key invalid or rate limited")
-        elif response.status_code == 401:
-            print("❌ Unsplash unauthorized — check your key")
+def get_theme_keyboard(user_id: str, current_theme=None):
+    premium = is_premium(user_id)
+    keyboard = []
+    
+    # Free themes row
+    row1 = []
+    for t in FREE_THEMES:
+        label = f"✅ {t.title()}" if current_theme == t else t.title()
+        row1.append(InlineKeyboardButton(label, callback_data=f"theme_{t}"))
+    keyboard.append(row1)
+    
+    # Premium themes rows
+    row2 = []
+    for theme in PREMIUM_THEMES[:2]:
+        if premium:
+            label = f"✅ {theme.title()}" if current_theme == theme else theme.title()
         else:
-            print(f"❌ Unsplash error: {response.text[:200]}")
-
-    except requests.Timeout:
-        print(f"❌ Unsplash timeout for '{keyword}'")
-    except Exception as e:
-        print(f"❌ Unsplash failed for '{keyword}': {e}")
-
-    return None
-
-
-# ─── ENHANCED HELPERS ─────────────────────────────────────────────
-def set_bg(slide, color):
-    fill = slide.background.fill
-    fill.solid()
-    fill.fore_color.rgb = color
-
-
-def add_rect(slide, left, top, width, height, color, radius=0, transparency=0):
-    from pptx.oxml.ns import qn
-    from lxml import etree
-
-    shape = slide.shapes.add_shape(1, left, top, width, height)
-    shape.fill.solid()
-    shape.fill.fore_color.rgb = color
+            label = f"🔒 {theme.title()}"
+        row2.append(InlineKeyboardButton(label, callback_data=f"theme_{theme}"))
+    keyboard.append(row2)
     
-    if transparency > 0:
-        shape.fill.transparency = transparency
+    row3 = []
+    for theme in PREMIUM_THEMES[2:]:
+        if premium:
+            label = f"✅ {theme.title()}" if current_theme == theme else theme.title()
+        else:
+            label = f"🔒 {theme.title()}"
+        row3.append(InlineKeyboardButton(label, callback_data=f"theme_{theme}"))
+    keyboard.append(row3)
     
-    shape.line.fill.background()
+    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="cancel")])
+    return InlineKeyboardMarkup(keyboard)
 
-    if radius > 0:
-        sp = shape._element
-        spPr = sp.find(qn("p:spPr"))
-        prstGeom = spPr.find(qn("a:prstGeom")) if spPr is not None else None
-        if prstGeom is not None:
-            spPr.remove(prstGeom)
-        prstGeom = etree.SubElement(spPr, qn("a:prstGeom"))
-        prstGeom.set("prst", "roundRect")
-        avLst = etree.SubElement(prstGeom, qn("a:avLst"))
-        gd = etree.SubElement(avLst, qn("a:gd"))
-        gd.set("name", "adj")
-        gd.set("fmla", f"val {radius}")
-
-    return shape
-
-
-def add_text(
-    slide,
-    text,
-    left,
-    top,
-    width,
-    height,
-    size,
-    color,
-    bold=False,
-    align=PP_ALIGN.LEFT,
-    wrap=True,
-    italic=False,
-):
-    tb = slide.shapes.add_textbox(left, top, width, height)
-    tf = tb.text_frame
-    tf.word_wrap = wrap
-    p = tf.paragraphs[0]
-    p.alignment = align
-    run = p.add_run()
-    run.text = text
-    run.font.size = size
-    run.font.color.rgb = color
-    run.font.bold = bold
-    run.font.italic = italic
-    run.font.name = "Calibri"
-    return tb
+def get_slide_count_keyboard(user_id: str):
+    premium = is_premium(user_id)
+    max_slides = 30 if premium else 8
+    options = [5, 8, 10, 12, 15, 20, 25, 30]
+    keyboard = []
+    row = []
+    for n in options:
+        if n > max_slides:
+            continue
+        row.append(InlineKeyboardButton(str(n), callback_data=f"slides_{n}"))
+        if len(row) == 4:
+            keyboard.append(row)
+            row = []
+    if row:
+        keyboard.append(row)
+    keyboard.append([InlineKeyboardButton("❌ Cancel", callback_data="cancel")])
+    return InlineKeyboardMarkup(keyboard)
 
 
-def add_image_to_slide(slide, image_stream, left, top, width, height):
-    try:
-        slide.shapes.add_picture(image_stream, left, top, width, height)
-        return True
-    except Exception as e:
-        print(f"Image insert failed: {e}")
-        return False
-
-
-def make_rounded_image(image_stream, radius=60):
-    try:
-        img = Image.open(image_stream).convert("RGBA")
-        w, h = img.size
-
-        mask = Image.new("L", (w, h), 0)
-        draw = ImageDraw.Draw(mask)
-        draw.rounded_rectangle([0, 0, w, h], radius=radius, fill=255)
-
-        img.putalpha(mask)
-        out = BytesIO()
-        img.save(out, format="PNG")
-        out.seek(0)
-        return out
-    except Exception as e:
-        print(f"Rounded image failed: {e}")
-        try:
-            image_stream.seek(0)
-        except Exception:
-            pass
-        return image_stream
-
-
-# ─── TITLE SLIDE — Premium hero layout ────────────────────────────
-def build_title_slide(prs, title, theme, keyword="abstract"):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    set_bg(slide, theme["bg"])
-
-    img = fetch_unsplash_image(keyword)
-    if img:
-        add_image_to_slide(slide, img, 0, 0, SLIDE_W, SLIDE_H)
-        overlay = add_rect(slide, 0, 0, SLIDE_W, SLIDE_H, RGBColor(0x00, 0x00, 0x00))
-        overlay.fill.transparency = 0.4
-
-    # Gradient-like effect with multiple accent bars
-    add_rect(slide, 0, Inches(5.5), SLIDE_W, Inches(2.0), theme["accent"], transparency=0.15)
-    add_rect(slide, 0, Inches(6.2), SLIDE_W, Inches(1.3), theme["accent"], transparency=0.3)
-
-    # Main title with premium spacing
-    add_text(
-        slide,
-        title,
-        Inches(0.8),
-        Inches(2.0),
-        Inches(11.73),
-        Inches(2.5),
-        Pt(52),
-        theme["title_color"],  # use theme color instead of white
-        bold=True,
-        align=PP_ALIGN.CENTER,
+# ─── GUIDED FLOW WITH BETTER UX ──────────────────────────────────
+async def ask_for_slide_count(update: Update, context: ContextTypes.DEFAULT_TYPE, message=None):
+    msg = message or update.message
+    await msg.reply_text(
+        "📊 **How many slides do you need?**\n\n"
+        f"{'✨ Premium: up to 30 slides' if is_premium(str(update.effective_user.id)) else 'Free: up to 8 slides'}",
+        reply_markup=get_slide_count_keyboard(str(update.effective_user.id)),
+        parse_mode="Markdown"
     )
 
-    add_text(
-        slide,
-        "Generated by SlideBot",
-        Inches(0.8),
-        Inches(6.3),
-        Inches(11.73),
-        Inches(0.6),
-        Pt(16),
-        RGBColor(0xFF, 0xFF, 0xFF),
-        align=PP_ALIGN.CENTER,
-        italic=True,
-    )
-
-
-# ─── LAYOUT A — Split screen with rounded image and cards ─────────
-def build_layout_a(prs, heading, bullets, theme, keyword):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    set_bg(slide, theme["bg"])
-
-    # Top accent bar
-    add_rect(slide, 0, 0, SLIDE_W, Inches(0.1), theme["accent"])
-
-    # Left image with rounded corners and subtle shadow effect
-    img = fetch_unsplash_image(keyword)
-    if img:
-        rounded = make_rounded_image(img, radius=60)
-        add_image_to_slide(slide, rounded, Inches(0.3), Inches(0.3), Inches(5.2), Inches(6.9))
+async def slide_count_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    num_slides = int(query.data.replace("slides_", ""))
+    context.user_data["pending_slides"] = num_slides
+    uid = str(query.from_user.id)
+    
+    # If theme already selected, generate immediately
+    if "theme" in context.user_data:
+        theme = context.user_data["theme"]
+        await query.edit_message_text(f"🎯 **{num_slides} slides** — generating your deck now...")
+        await start_generation(
+            query, context,
+            context.user_data.get("pending_topic", ""),
+            num_slides, theme,
+            raw_text=context.user_data.get("pending_raw_text")
+        )
     else:
-        add_rect(slide, Inches(0.3), Inches(0.3), Inches(5.2), Inches(6.9), theme["card_bg"], radius=60)
+        await query.edit_message_text(
+            "🎨 **Great! Now pick your slide style**\n\n"
+            "Each theme has unique colors and layouts:",
+            reply_markup=get_theme_keyboard(uid, context.user_data.get("theme")),
+            parse_mode="Markdown"
+        )
 
-    # Right content area with better spacing
-    heading_box = add_text(
-        slide,
-        heading,
-        Inches(5.9),
-        Inches(0.5),
-        Inches(7.1),
-        Inches(1.3),
-        Pt(32),
-        theme["heading_color"],
-        bold=True,
-        align=PP_ALIGN.LEFT,
+async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    context.user_data.clear()
+    await query.edit_message_text(
+        "❌ **Cancelled**\n\n"
+        "Send me a new topic anytime to create your presentation!",
+        parse_mode="Markdown"
+    )
+
+
+# ─── COMMANDS ─────────────────────────────────────────────────────
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    uid = str(user.id)
+    get_or_create_user(uid, str(user.username or user.first_name))
+    
+    # Load saved theme if exists
+    from database import get_user_theme, save_user_theme
+    saved_theme = get_user_theme(uid)
+    if saved_theme:
+        context.user_data["theme"] = saved_theme
+    
+    keyboard = [
+        [InlineKeyboardButton("📖 How to use", callback_data="show_help")],
+        [InlineKeyboardButton("🎨 Change Theme", callback_data="change_theme")],
+        [InlineKeyboardButton("💎 Upgrade to Premium", callback_data="show_upgrade")]
+    ]
+    await update.message.reply_text(
+        f"✨ **Hey {user.first_name}!** ✨\n\n"
+        "Welcome to **SlideBot** — your AI presentation designer.\n\n"
+        "**Just type any topic** and I'll create a professional PowerPoint in seconds!\n\n"
+        "📝 **Try:**\n"
+        "• *Climate change in Africa*\n"
+        "• *My business pitch*\n"
+        "• *Digital marketing trends*\n\n"
+        "📎 Or send me a **URL, PDF, or Word doc** to convert!\n\n"
+        f"{'🎨 Current theme: ' + saved_theme.title() if saved_theme else '🎨 Pick a theme below'}",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+
+async def change_theme_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    uid = str(query.from_user.id)
+    await query.edit_message_text(
+        "🎨 **Choose your slide style**\n\n"
+        "• **Classic** — Professional blue tones\n"
+        "• **Dark** — Bold modern look\n"
+        "• **Corporate** — Business formal\n"
+        "• **Startup** — Vibrant & energetic\n"
+        "• **Academic** — Clean scholarly\n"
+        "• **Minimal** — Simple elegant\n\n"
+        f"{'🔓 All themes unlocked!' if is_premium(uid) else '🔒 Premium themes require upgrade'}",
+        reply_markup=get_theme_keyboard(uid, context.user_data.get("theme")),
+        parse_mode="Markdown"
+    )
+
+async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    uid = str(query.from_user.id)
+    premium = is_premium(uid)
+    
+    help_text = (
+        "📚 **How SlideBot Works**\n\n"
+        "**1.** Type a topic or paste a URL\n"
+        "**2.** Choose number of slides\n"
+        "**3.** Pick your theme\n"
+        "**4.** Download your PPTX instantly!\n\n"
+        "**✨ Features:**\n"
+        "• URL → Slides (extract from articles)\n"
+        "• PDF/Word → Slides\n"
+        "• 6 premium themes\n"
+        "• Professional layouts\n\n"
     )
     
-    # Decorative line under heading
-    add_rect(slide, Inches(5.9), Inches(1.9), Inches(2.5), Inches(0.06), theme["accent"], radius=30000)
+    if premium:
+        help_text += "💎 **Your plan: Premium**\n• Unlimited decks\n• Up to 30 slides\n• All themes\n• Priority support"
+    else:
+        help_text += "📊 **Your plan: Free**\n• 2 decks/day\n• Up to 8 slides\n• Classic & Dark themes\n\nType /upgrade for unlimited! 💎"
+    
+    keyboard = [[InlineKeyboardButton("🎨 Change Theme", callback_data="change_theme")]]
+    await query.edit_message_text(help_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
-    # Enhanced bullet points with custom icons
-    top = Inches(2.3)
-    for i, bullet in enumerate(bullets[:5]):
-        # Colored bullet accent
-        add_rect(slide, Inches(5.9), top + Inches(0.12), Inches(0.12), Inches(0.12), theme["accent"], radius=30000)
+async def show_upgrade_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    await query.edit_message_text(
+        "💎 **SlideBot Premium — ₦500/month**\n\n"
+        "**What you unlock:**\n"
+        "✅ Unlimited presentations\n"
+        "✅ Up to 30 slides per deck\n"
+        "✅ All 6 premium themes\n"
+        "✅ Unlimited URL → Slides\n"
+        "✅ Unlimited PDF/Word → Slides\n"
+        "✅ No watermarks\n"
+        "✅ Priority support\n\n"
+        "**How to pay:**\n"
+        "Bank: MONIEPOINT MFB\n"
+        "Name: Abdullah Abdulgafar-Amuda\n"
+        "Account: 8169936326\n\n"
+        "After payment, send your receipt screenshot here,\n"
+        "then type /paid 🙏",
+        parse_mode="Markdown"
+    )
+
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    uid = str(user.id)
+    get_or_create_user(uid, str(user.username or user.first_name))
+    premium = is_premium(uid)
+    
+    help_text = (
+        "📚 **How SlideBot Works**\n\n"
+        "**1.** Type a topic or paste a URL\n"
+        "**2.** Choose number of slides\n"
+        "**3.** Pick your theme\n"
+        "**4.** Download your PPTX instantly!\n\n"
+        "**✨ Features:**\n"
+        "• URL → Slides\n"
+        "• PDF/Word → Slides\n"
+        "• 6 premium themes\n"
+        "• Professional layouts\n\n"
+    )
+    
+    if premium:
+        help_text += "💎 **Premium:** Unlimited access • 30 slides • All themes"
+    else:
+        help_text += "📊 **Free:** 2 decks/day • 8 slides • Basic themes\n\nType /upgrade for unlimited! 💎"
+    
+    await update.message.reply_text(help_text, parse_mode="Markdown")
+
+async def theme_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    uid = str(user.id)
+    get_or_create_user(uid, str(user.username or user.first_name))
+    await update.message.reply_text(
+        "🎨 **Choose your slide style**",
+        reply_markup=get_theme_keyboard(uid, context.user_data.get("theme")),
+        parse_mode="Markdown"
+    )
+
+async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    uid = str(user.id)
+    get_or_create_user(uid, str(user.username or user.first_name))
+    premium = is_premium(uid)
+    can_gen = can_generate(uid)
+    plan = "💎 Premium" if premium else "📊 Free"
+    limit_text = "Unlimited" if premium else "2 per day"
+    
+    # Get today's usage
+    from database import get_today_usage
+    used_today = get_today_usage(uid)
+    remaining = "Unlimited" if premium else max(0, 2 - used_today)
+    
+    await update.message.reply_text(
+        f"**Your SlideBot Status**\n\n"
+        f"📌 **Plan:** {plan}\n"
+        f"📊 **Daily limit:** {limit_text}\n"
+        f"✅ **Used today:** {used_today if not premium else '∞'}\n"
+        f"🎯 **Remaining:** {remaining if not premium else 'Unlimited'}\n"
+        f"🎨 **Can generate now:** {'Yes ✅' if can_gen else 'No — limit reached'}\n\n"
+        f"Type /upgrade to go Premium 💎",
+        parse_mode="Markdown"
+    )
+
+async def upgrade_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "💎 **SlideBot Premium — ₦500/month**\n\n"
+        "**What you unlock:**\n"
+        "✅ Unlimited presentations\n"
+        "✅ Up to 30 slides per deck\n"
+        "✅ All 6 premium themes\n"
+        "✅ Unlimited URL → Slides\n"
+        "✅ Unlimited PDF/Word → Slides\n"
+        "✅ No watermarks\n"
+        "✅ Priority support\n\n"
+        "**How to pay:**\n"
+        "Bank: MONIEPOINT MFB\n"
+        "Name: Abdullah Abdulgafar-Amuda\n"
+        "Account: 8169936326\n\n"
+        "After payment, send your receipt screenshot here,\n"
+        "then type /paid 🙏",
+        parse_mode="Markdown"
+    )
+
+async def paid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    uid = str(user.id)
+    username = user.username or user.first_name
+    try:
+        await context.bot.send_message(
+            chat_id=int(ADMIN_ID),
+            text=f"💰 **Payment Claim**\n\n"
+                 f"👤 User: @{username}\n"
+                 f"🆔 ID: `{uid}`\n\n"
+                 f"To activate: `/activate {uid}`",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        logger.error(f"Admin notify error: {e}")
+    await update.message.reply_text(
+        "🙏 **Thank you for your payment!**\n\n"
+        "We've received your claim and will verify shortly.\n"
+        "You'll be activated within the hour — we'll notify you here. ✅\n\n"
+        "Meanwhile, try the free themes while you wait! 🎨",
+        parse_mode="Markdown"
+    )
+
+
+# ─── ADMIN COMMANDS (FIXED) ───────────────────────────────────────
+async def activate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_admin(str(user.id)):
+        await update.message.reply_text("❌ Not authorized.")
+        return
+    
+    if not context.args:
+        await update.message.reply_text(
+            "Usage: /activate <telegram_id>\n\n"
+            "Example: /activate 123456789",
+            parse_mode="Markdown"
+        )
+        return
+    
+    target_id = context.args[0]
+    success = activate_premium(target_id, str(user.id))
+    
+    if success:
+        await update.message.reply_text(f"✅ **User {target_id} is now PREMIUM!**", parse_mode="Markdown")
+        try:
+            await context.bot.send_message(
+                chat_id=int(target_id),
+                text="🎉 **CONGRATULATIONS!** 🎉\n\n"
+                     "You've been upgraded to **Premium**!\n\n"
+                     "✨ **What you get now:**\n"
+                     "• Unlimited presentations\n"
+                     "• Up to 30 slides per deck\n"
+                     "• All 6 premium themes\n"
+                     "• Unlimited URL & file uploads\n\n"
+                     "Type a topic to create your first Premium deck! 🚀",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            logger.error(f"Could not message user: {e}")
+    else:
+        await update.message.reply_text(f"❌ Could not activate {target_id}. User may not exist.")
+
+async def revoke_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_admin(str(user.id)):
+        await update.message.reply_text("❌ Not authorized.")
+        return
+    if not context.args:
+        await update.message.reply_text("Usage: /revoke <telegram_id>")
+        return
+    target_id = context.args[0]
+    success = revoke_premium(target_id)
+    if success:
+        await update.message.reply_text(f"✅ Premium revoked for {target_id}")
+        try:
+            await context.bot.send_message(
+                chat_id=int(target_id),
+                text="Your Premium access has been revoked. Contact support for more info."
+            )
+        except:
+            pass
+    else:
+        await update.message.reply_text(f"❌ User {target_id} not found")
+
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_admin(str(user.id)):
+        await update.message.reply_text("❌ Not authorized.")
+        return
+    stats = get_total_stats()
+    await update.message.reply_text(
+        f"📊 **SlideBot Statistics**\n\n"
+        f"👥 Total users: {stats['total_users']}\n"
+        f"💎 Premium users: {stats['premium_users']}\n"
+        f"📋 Free users: {stats['free_users']}\n"
+        f"🎨 Total slides made: {stats['total_slides_generated']}",
+        parse_mode="Markdown"
+    )
+
+async def premiumlist_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    if not is_admin(str(user.id)):
+        await update.message.reply_text("❌ Not authorized.")
+        return
+    premium_users = get_premium_users()
+    if not premium_users:
+        await update.message.reply_text("No premium users yet.")
+        return
+    msg = "💎 **Premium Users:**\n\n"
+    for uid, u in premium_users.items():
+        msg += f"• @{u['username']} — `{uid}`\n"
+    await update.message.reply_text(msg, parse_mode="Markdown")
+
+
+# ─── THEME CALLBACK (FIXED - saves theme) ─────────────────────────
+async def theme_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    uid = str(query.from_user.id)
+    theme_name = query.data.replace("theme_", "")
+    
+    # Check premium restriction
+    if theme_name in PREMIUM_THEMES and not is_premium(uid):
+        await query.edit_message_text(
+            "🔒 **Premium Theme Locked**\n\n"
+            f"*{theme_name.title()}* is for Premium users only.\n\n"
+            "💎 **Upgrade to Premium** for:\n"
+            "• All 6 themes\n"
+            "• Unlimited presentations\n"
+            "• Up to 30 slides\n"
+            "• Unlimited URL/file uploads\n\n"
+            "Type /upgrade to get started! 🚀",
+            parse_mode="Markdown"
+        )
+        return
+    
+    # Save the selected theme
+    context.user_data["theme"] = theme_name
+    
+    # Save to database for persistence
+    from database import save_user_theme
+    save_user_theme(uid, theme_name)
+    
+    # If user has pending topic and slides, generate immediately
+    if "pending_topic" in context.user_data and "pending_slides" in context.user_data:
+        topic = context.user_data.pop("pending_topic")
+        num_slides = context.user_data.pop("pending_slides")
+        raw_text = context.user_data.pop("pending_raw_text", None)
+        await query.edit_message_text(f"✅ Theme: **{theme_name.title()}** applied!\n\n🎯 Generating your {num_slides}-slide deck...", parse_mode="Markdown")
+        await start_generation(query, context, topic, num_slides, theme_name, raw_text=raw_text)
+    else:
+        await query.edit_message_text(
+            f"✅ **Theme saved: {theme_name.title()}**\n\n"
+            "This theme will be used for all your presentations.\n\n"
+            "📝 **Now send me your topic** or paste a URL to begin!",
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("📖 How to use", callback_data="show_help")
+            ]]),
+            parse_mode="Markdown"
+        )
+
+
+# ─── CORE GENERATION ──────────────────────────────────────────────
+async def start_generation(query, context, topic, num_slides, theme, raw_text=None):
+    uid = str(query.from_user.id)
+    premium = is_premium(uid)
+    
+    await query.edit_message_text("🎨 **Creating your presentation...**\n\n"
+                                  "• Structuring content 📝\n"
+                                  "• Designing layouts 🎨\n"
+                                  "• Adding images 🖼️\n\n"
+                                  "This may take 20-30 seconds...",
+                                  parse_mode="Markdown")
+    try:
+        loop = asyncio.get_event_loop()
+        if raw_text:
+            slide_data = await asyncio.wait_for(
+                loop.run_in_executor(None, generate_from_text, raw_text, num_slides),
+                timeout=120
+            )
+        else:
+            slide_data = await asyncio.wait_for(
+                loop.run_in_executor(None, generate_slide_content, topic, num_slides),
+                timeout=120
+            )
+        if not slide_data:
+            await query.edit_message_text("❌ Something went wrong with the AI. Please try again.")
+            return
         
-        add_text(
-            slide,
-            bullet,
-            Inches(6.2),
-            top,
-            Inches(6.8),
-            Inches(0.65),
-            Pt(17),
-            theme["bullet_color"],
-            align=PP_ALIGN.LEFT,
-            wrap=True,
-        )
-        top += Inches(0.85)
-
-    # Bottom accent bar
-    add_rect(slide, 0, Inches(7.4), SLIDE_W, Inches(0.1), theme["accent"])
-
-
-# ─── LAYOUT B — Full bleed with modern overlay ────────────────────
-def build_layout_b(prs, heading, bullets, theme, keyword):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    set_bg(slide, theme["bg"])
-
-    img = fetch_unsplash_image(keyword)
-    if img:
-        add_image_to_slide(slide, img, 0, 0, SLIDE_W, SLIDE_H)
-
-    # Gradient-like overlay (semi-transparent)
-    add_rect(slide, 0, Inches(2.8), SLIDE_W, Inches(4.7), theme["accent"], transparency=0.7)
-    add_rect(slide, 0, Inches(3.0), SLIDE_W, Inches(4.5), RGBColor(0x00, 0x00, 0x00), transparency=0.3)
-
-    # Top accent bar
-    add_rect(slide, 0, 0, SLIDE_W, Inches(0.12), theme["accent"])
-
-    # Large heading with letter spacing effect
-    add_text(
-        slide,
-        heading,
-        Inches(0.8),
-        Inches(3.1),
-        Inches(11.73),
-        Inches(1.2),
-        Pt(36),
-        theme["heading_color"],  # use theme heading color
-        bold=True,
-        align=PP_ALIGN.LEFT,
-    )
-
-    # Subtitle/divider
-    add_rect(slide, Inches(0.8), Inches(4.3), Inches(3.0), Inches(0.04), RGBColor(0xFF, 0xFF, 0xFF))
-
-    # Bullets with modern chevron style
-    top = Inches(4.6)
-    for bullet in bullets[:4]:
-        add_text(
-            slide,
-            f"◆  {bullet}",
-            Inches(0.8),
-            top,
-            Inches(11.73),
-            Inches(0.7),
-            Pt(18),
-            RGBColor(0xFF, 0xFF, 0xFF),
-            align=PP_ALIGN.LEFT,
-        )
-        top += Inches(0.75)
-
-    # Bottom indicator
-    add_rect(slide, Inches(6.165), Inches(7.25), Inches(1.0), Inches(0.08), RGBColor(0xFF, 0xFF, 0xFF), radius=30000)
-
-
-# ─── LAYOUT C — Card-style grid layout ────────────────────────────
-def build_layout_c(prs, heading, bullets, theme, keyword):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    set_bg(slide, theme["bg"])
-
-    # Top decorative bar
-    add_rect(slide, 0, 0, SLIDE_W, Inches(0.1), theme["accent"])
-
-    # Heading with modern placement
-    add_text(
-        slide,
-        heading,
-        Inches(0.7),
-        Inches(0.35),
-        Inches(9.0),
-        Inches(1.0),
-        Pt(30),
-        theme["heading_color"],
-        bold=True,
-        align=PP_ALIGN.LEFT,
-    )
-
-    # Right side image with rounded corners
-    img = fetch_unsplash_image(keyword)
-    if img:
-        rounded = make_rounded_image(img, radius=50)
-        add_image_to_slide(slide, rounded, Inches(9.3), Inches(0.25), Inches(3.8), Inches(3.8))
-
-    # Card-style bullets with alternating colors
-    top = Inches(1.5)
-    card_colors = [theme["accent"], theme["accent2"], theme["card_bg"], theme["light_accent"]]
-
-    for i, bullet in enumerate(bullets[:5]):
-        card_color = card_colors[i % len(card_colors)]
-        is_dark = card_color in [theme["accent"], theme["accent2"]]
+        await query.edit_message_text("📐 **Almost done!** Designing your slides with premium layouts...", parse_mode="Markdown")
         
-        # Card background with rounded corners
-        add_rect(slide, Inches(0.5), top, Inches(8.5), Inches(0.82), card_color, radius=20000)
-        
-        txt_color = RGBColor(0xFF, 0xFF, 0xFF) if is_dark else theme["bullet_color"]
-        
-        # Add bullet number/icon
-        add_text(
-            slide,
-            f"0{i+1}",
-            Inches(0.7),
-            top + Inches(0.12),
-            Inches(0.8),
-            Inches(0.6),
-            Pt(14),
-            txt_color,
-            bold=True,
-            align=PP_ALIGN.CENTER,
+        filepath = await loop.run_in_executor(
+            None, build_presentation, slide_data, theme, premium
         )
         
-        add_text(
-            slide,
-            bullet,
-            Inches(1.6),
-            top + Inches(0.08),
-            Inches(7.2),
-            Inches(0.65),
-            Pt(16),
-            txt_color,
-            align=PP_ALIGN.LEFT,
-        )
-        top += Inches(0.96)
-
-    # Bottom bar
-    add_rect(slide, 0, Inches(7.4), SLIDE_W, Inches(0.1), theme["accent"])
-
-
-# ─── LAYOUT D — Impact quote / statistic style ────────────────────
-
-def build_layout_d(prs, heading, bullets, theme, keyword):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-
-    # Use the normal background color so text is always readable
-    set_bg(slide, theme["bg"])
-
-    # Decorative elements (can stay white, they are just shapes)
-    add_rect(
-        slide,
-        Inches(1.0),
-        Inches(0.5),
-        Inches(0.12),
-        Inches(1.2),
-        RGBColor(0xFF, 0xFF, 0xFF),
-        transparency=0.3,
-    )
-    add_rect(
-        slide,
-        Inches(11.5),
-        Inches(5.8),
-        Inches(0.12),
-        Inches(1.2),
-        RGBColor(0xFF, 0xFF, 0xFF),
-        transparency=0.3,
-    )
-
-    # Large quote/heading – use theme heading color (not hard-coded white)
-    add_text(
-        slide,
-        heading,
-        Inches(1.5),
-        Inches(0.8),
-        Inches(10.33),
-        Inches(2.0),
-        Pt(38),
-        theme["heading_color"],   # changed from RGBColor(255,255,255)
-        bold=True,
-        align=PP_ALIGN.CENTER,
-    )
-
-    # Divider line (can stay white, it's decorative)
-    add_rect(
-        slide,
-        Inches(5.0),
-        Inches(2.9),
-        Inches(3.33),
-        Inches(0.05),
-        RGBColor(0xFF, 0xFF, 0xFF),
-    )
-
-    # Key points as centered statements – use theme bullet color
-    top = Inches(3.2)
-    for bullet in bullets[:4]:
-        add_text(
-            slide,
-            f"✦  {bullet}",
-            Inches(1.5),
-            top,
-            Inches(10.33),
-            Inches(0.7),
-            Pt(19),
-            theme["bullet_color"],  # changed from RGBColor(255,255,255)
-            align=PP_ALIGN.CENTER,
-        )
-        top += Inches(0.82)
-
-    # Small decorative image
-    img = fetch_unsplash_image(keyword)
-    if img:
-        rounded = make_rounded_image(img, radius=30)
-        add_image_to_slide(slide, rounded, Inches(10.8), Inches(5.8), Inches(2.2), Inches(1.5))
-
-
-# ─── LAYOUT E — Vertical timeline / process style ─────────────────
-def build_layout_e(prs, heading, bullets, theme, keyword):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    set_bg(slide, theme["bg"])
-
-    # Top bar
-    add_rect(slide, 0, 0, SLIDE_W, Inches(0.1), theme["accent"])
-
-    # Heading
-    add_text(
-        slide,
-        heading,
-        Inches(0.7),
-        Inches(0.4),
-        Inches(11.73),
-        Inches(1.0),
-        Pt(30),
-        theme["heading_color"],
-        bold=True,
-        align=PP_ALIGN.LEFT,
-    )
-
-    # Timeline line
-    add_rect(slide, Inches(1.2), Inches(1.6), Inches(0.08), Inches(5.5), theme["light_accent"], radius=30000)
-
-    # Bullets as timeline nodes
-    top = Inches(1.6)
-    for i, bullet in enumerate(bullets[:5]):
-        # Node circle
-        add_rect(slide, Inches(1.16), top + Inches(0.15), Inches(0.16), Inches(0.16), theme["accent"], radius=30000)
+        increment_usage(uid)
         
-        # Year/step indicator
-        add_text(
-            slide,
-            f"STEP 0{i+1}",
-            Inches(1.6),
-            top,
-            Inches(1.5),
-            Inches(0.5),
-            Pt(12),
-            theme["accent2"],
-            bold=True,
-            align=PP_ALIGN.LEFT,
-        )
+        await query.edit_message_text("✅ **Done! Sending your file now...**", parse_mode="Markdown")
         
-        # Bullet text
-        add_text(
-            slide,
-            bullet,
-            Inches(3.2),
-            top,
-            Inches(9.5),
-            Inches(0.7),
-            Pt(16),
-            theme["bullet_color"],
-            align=PP_ALIGN.LEFT,
-            wrap=True,
+        with open(filepath, "rb") as f:
+            await context.bot.send_document(
+                chat_id=query.message.chat_id,
+                document=f,
+                filename=f"{slide_data.get('title', 'Presentation')}.pptx",
+                caption=(
+                    f"🎉 **Here's your presentation!**\n\n"
+                    f"📌 **Title:** {slide_data.get('title', '')}\n"
+                    f"🎨 **Theme:** {theme.title()}\n"
+                    f"📊 **Slides:** {num_slides}\n\n"
+                    f"{'💎 **Premium** — Unlimited generations!' if premium else '📊 **Free plan** — 2/day remaining. Type /upgrade for unlimited! 💎'}"
+                ),
+                parse_mode="Markdown"
+            )
+        
+        os.remove(filepath)
+        
+    except asyncio.TimeoutError:
+        await query.edit_message_text("⏰ **Taking too long** — please try a simpler topic or fewer slides.", parse_mode="Markdown")
+    except Exception as e:
+        logger.error(f"Generation error: {e}")
+        await query.edit_message_text("❌ **Something went wrong.** Please try again or contact support.", parse_mode="Markdown")
+
+
+# ─── MESSAGE HANDLER ──────────────────────────────────────────────
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    uid = str(user.id)
+    text = update.message.text.strip()
+    get_or_create_user(uid, str(user.username or user.first_name))
+
+    # URL detection
+    if text.startswith("http://") or text.startswith("https://"):
+        if not can_use_url(uid):
+            await update.message.reply_text(
+                "🔒 **URL limit reached**\n\n"
+                "You've used your free URL slot for this month.\n\n"
+                "💎 **Upgrade to Premium** for unlimited URL → slides!\n"
+                "Type /upgrade to unlock 🚀",
+                parse_mode="Markdown"
+            )
+            return
+        await handle_url(update, context, text)
+        return
+
+    # Check daily limit
+    if not can_generate(uid):
+        await update.message.reply_text(
+            "📊 **Daily limit reached**\n\n"
+            "You've used your 2 free presentations for today.\n\n"
+            "💎 **Upgrade to Premium** for:\n"
+            "• Unlimited presentations\n"
+            "• Up to 30 slides\n"
+            "• All premium themes\n"
+            "• Unlimited URL/file uploads\n\n"
+            "Type /upgrade to get unlimited access! 🚀",
+            parse_mode="Markdown"
         )
-        top += Inches(1.05)
+        return
+    
+    context.user_data["pending_topic"] = text
+    await ask_for_slide_count(update, context)
 
-    # Bottom bar
-    add_rect(slide, 0, Inches(7.4), SLIDE_W, Inches(0.1), theme["accent"])
+
+# ─── URL HANDLER ──────────────────────────────────────────────────
+async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE, url: str):
+    uid = str(update.effective_user.id)
+    await update.message.reply_text("🔍 **Extracting content from your link...**", parse_mode="Markdown")
+    try:
+        loop = asyncio.get_event_loop()
+        downloaded = await loop.run_in_executor(
+            None, trafilatura.fetch_url, url
+        )
+        if not downloaded:
+            await update.message.reply_text("❌ Couldn't fetch that URL. Try another link.")
+            return
+        text = trafilatura.extract(downloaded)
+        if not text or len(text) < 100:
+            await update.message.reply_text("❌ Couldn't extract enough content from that page.")
+            return
+        increment_url_usage(uid)
+        context.user_data["pending_topic"] = url
+        context.user_data["pending_raw_text"] = text[:8000]
+        await update.message.reply_text(
+            f"✅ **Content extracted!** ({len(text)} characters)\n\n"
+            "📊 **How many slides do you want?**",
+            reply_markup=get_slide_count_keyboard(uid),
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        logger.error(f"URL error: {e}")
+        await update.message.reply_text("❌ Something went wrong fetching that URL. Try again.")
 
 
-# ─── LAYOUT F — Two-column comparison ─────────────────────────────
-def build_layout_f(prs, heading, bullets, theme, keyword):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    set_bg(slide, theme["bg"])
+# ─── FILE HANDLER ─────────────────────────────────────────────────
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    uid = str(user.id)
+    get_or_create_user(uid, str(user.username or user.first_name))
+    doc = update.message.document
+    if not doc:
+        return
 
-    # Top accent
-    add_rect(slide, 0, 0, SLIDE_W, Inches(0.1), theme["accent"])
+    if not can_use_file(uid):
+        await update.message.reply_text(
+            "🔒 **File upload limit reached**\n\n"
+            "You've used your free file upload for this month.\n\n"
+            "💎 **Upgrade to Premium** for unlimited file → slides!\n"
+            "Type /upgrade to unlock 🚀",
+            parse_mode="Markdown"
+        )
+        return
 
-    # Main heading
-    add_text(
-        slide,
-        heading,
-        Inches(0.7),
-        Inches(0.4),
-        Inches(11.73),
-        Inches(0.9),
-        Pt(32),
-        theme["heading_color"],
-        bold=True,
-        align=PP_ALIGN.LEFT,
+    filename = doc.file_name or ""
+    ext = filename.lower().split(".")[-1] if "." in filename else ""
+
+    if ext not in ["pdf", "docx", "doc"]:
+        await update.message.reply_text(
+            "📄 **Supported files:** PDF and Word (.docx)\n\n"
+            "Please send one of these formats and I'll convert it to slides!",
+            parse_mode="Markdown"
+        )
+        return
+
+    await update.message.reply_text("📖 **Reading your file...**", parse_mode="Markdown")
+
+    try:
+        file = await context.bot.get_file(doc.file_id)
+        file_bytes = await file.download_as_bytearray()
+        file_stream = io.BytesIO(bytes(file_bytes))
+        loop = asyncio.get_event_loop()
+
+        if ext == "pdf":
+            text = await loop.run_in_executor(None, extract_pdf_text, file_stream)
+        else:
+            text = await loop.run_in_executor(None, extract_docx_text, file_stream)
+
+        if not text or len(text) < 100:
+            await update.message.reply_text("❌ Couldn't extract enough text from that file.")
+            return
+
+        increment_file_usage(uid)
+        context.user_data["pending_topic"] = filename
+        context.user_data["pending_raw_text"] = text[:8000]
+
+        await update.message.reply_text(
+            f"✅ **File processed!** ({len(text)} characters extracted)\n\n"
+            "📊 **How many slides do you want?**",
+            reply_markup=get_slide_count_keyboard(uid),
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        logger.error(f"File error: {e}")
+        await update.message.reply_text("❌ Something went wrong reading that file. Try again.")
+
+
+def extract_pdf_text(file_stream) -> str:
+    try:
+        import fitz
+        doc = fitz.open(stream=file_stream.read(), filetype="pdf")
+        text = ""
+        for page in doc:
+            text += page.get_text()
+        return text.strip()
+    except Exception as e:
+        print(f"PDF extract error: {e}")
+        return ""
+
+def extract_docx_text(file_stream) -> str:
+    try:
+        from docx import Document
+        doc = Document(file_stream)
+        text = "\n".join([para.text for para in doc.paragraphs if para.text.strip()])
+        return text.strip()
+    except Exception as e:
+        print(f"DOCX extract error: {e}")
+        return ""
+
+
+# ─── PHOTO HANDLER ────────────────────────────────────────────────
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    uid = str(user.id)
+    username = user.username or user.first_name
+    try:
+        await context.bot.send_message(
+            chat_id=int(ADMIN_ID),
+            text=f"📸 **Payment Screenshot**\n\n👤 User: @{username}\n🆔 ID: `{uid}`\n\nTo activate: `/activate {uid}`",
+            parse_mode="Markdown"
+        )
+        await context.bot.forward_message(
+            chat_id=int(ADMIN_ID),
+            from_chat_id=update.message.chat_id,
+            message_id=update.message.message_id
+        )
+    except Exception as e:
+        logger.error(f"Forward error: {e}")
+    await update.message.reply_text(
+        "📸 **Screenshot received!**\n\n"
+        "Now type **/paid** to complete your request — we'll activate you within the hour. 🙏",
+        parse_mode="Markdown"
     )
 
-    # Split bullets into two columns
-    mid = len(bullets) // 2
-    col1 = bullets[:mid]
-    col2 = bullets[mid:]
 
-    # Left column
-    left_top = Inches(1.6)
-    for bullet in col1[:4]:
-        add_rect(slide, Inches(0.7), left_top + Inches(0.12), Inches(0.1), Inches(0.1), theme["accent"], radius=30000)
-        add_text(
-            slide,
-            bullet,
-            Inches(1.0),
-            left_top,
-            Inches(5.0),
-            Inches(0.65),
-            Pt(16),
-            theme["bullet_color"],
-            align=PP_ALIGN.LEFT,
-        )
-        left_top += Inches(0.85)
+class PingHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"SlideBot is alive!")
+    
+    def do_HEAD(self):
+        self.send_response(200)
+        self.end_headers()
 
-    # Right column with image
-    img = fetch_unsplash_image(keyword)
-    if img:
-        rounded = make_rounded_image(img, radius=50)
-        add_image_to_slide(slide, rounded, Inches(7.0), Inches(1.6), Inches(5.8), Inches(4.5))
+    def log_message(self, format, *args):
+        pass
 
-    # Right column bullets if space
-    right_top = Inches(1.6)
-    for bullet in col2[:3]:
-        add_rect(slide, Inches(7.0), right_top + Inches(0.12), Inches(0.1), Inches(0.1), theme["accent"], radius=30000)
-        add_text(
-            slide,
-            bullet,
-            Inches(7.3),
-            right_top,
-            Inches(5.5),
-            Inches(0.65),
-            Pt(16),
-            theme["bullet_color"],
-            align=PP_ALIGN.LEFT,
-        )
-        right_top += Inches(0.85)
-
-    # Bottom bar
-    add_rect(slide, 0, Inches(7.4), SLIDE_W, Inches(0.1), theme["accent"])
+def run_ping_server():
+    port = int(os.getenv("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), PingHandler)
+    print(f"Ping server running on port {port}")
+    server.serve_forever()
 
 
-# ─── THANK YOU SLIDE — Premium closing ────────────────────────────
-def build_thankyou_slide(prs, theme, is_premium=False):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    set_bg(slide, theme["bg"])
+# ─── MAIN ─────────────────────────────────────────────────────────
+async def main():
+    Thread(target=run_ping_server, daemon=True).start()
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
 
-    # Top and bottom accent bars
-    add_rect(slide, 0, 0, SLIDE_W, Inches(0.1), theme["accent"])
-    add_rect(slide, 0, Inches(7.4), SLIDE_W, Inches(0.1), theme["accent"])
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("status", status_command))
+    app.add_handler(CommandHandler("theme", theme_command))
+    app.add_handler(CommandHandler("upgrade", upgrade_command))
+    app.add_handler(CommandHandler("paid", paid_command))
+    app.add_handler(CommandHandler("activate", activate_command))
+    app.add_handler(CommandHandler("revoke", revoke_command))
+    app.add_handler(CommandHandler("stats", stats_command))
+    app.add_handler(CommandHandler("premiumlist", premiumlist_command))
 
-    # Decorative circle element
-    add_rect(slide, Inches(5.0), Inches(1.8), Inches(3.33), Inches(3.33), theme["light_accent"], radius=50000)
+    app.add_handler(CallbackQueryHandler(slide_count_callback, pattern="^slides_"))
+    app.add_handler(CallbackQueryHandler(theme_callback, pattern="^theme_"))
+    app.add_handler(CallbackQueryHandler(cancel_callback, pattern="^cancel$"))
+    app.add_handler(CallbackQueryHandler(help_callback, pattern="^show_help$"))
+    app.add_handler(CallbackQueryHandler(change_theme_callback, pattern="^change_theme$"))
+    app.add_handler(CallbackQueryHandler(show_upgrade_callback, pattern="^show_upgrade$"))
 
-    # Main thank you text
-    add_text(
-        slide,
-        "Thank You",
-        Inches(1.0),
-        Inches(2.3),
-        Inches(11.33),
-        Inches(1.5),
-        Pt(54),
-        theme["title_color"],
-        bold=True,
-        align=PP_ALIGN.CENTER,
-    )
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    add_text(
-        slide,
-        "Created with SlideBot",
-        Inches(1.0),
-        Inches(4.5),
-        Inches(11.33),
-        Inches(0.6),
-        Pt(18),
-        theme["bullet_color"],
-        align=PP_ALIGN.CENTER,
-        italic=True,
-    )
+    print("🚀 SlideBot is running!")
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+    await asyncio.Event().wait()
 
 
-# ─── MAIN BUILD FUNCTION ──────────────────────────────────────────
-LAYOUTS = [
-    build_layout_a,
-    build_layout_b,
-    build_layout_c,
-    build_layout_d,
-    build_layout_e,
-    build_layout_f,
-]
-
-
-def build_presentation(slide_data: dict, theme_name: str = "classic", is_premium: bool = False) -> str:
-    theme = THEMES.get(theme_name, THEMES["classic"])
-
-    prs = Presentation()
-    prs.slide_width = SLIDE_W
-    prs.slide_height = SLIDE_H
-
-    slides = slide_data.get("slides", [])
-    title = slide_data.get("title", "My Presentation")
-
-    first_keyword = slides[0].get("image_keyword", "business") if slides else "business"
-    build_title_slide(prs, title, theme, first_keyword)
-
-    content_slides = slides[1:-1] if len(slides) > 2 else slides
-    for idx, slide in enumerate(content_slides):
-        heading = slide.get("heading", "")
-        bullets = slide.get("bullets", [])
-        keyword = slide.get("image_keyword", "business")
-        layout_fn = LAYOUTS[idx % len(LAYOUTS)]
-        layout_fn(prs, heading, bullets, theme, keyword)
-
-    build_thankyou_slide(prs, theme)
-
-    filename = f"slidebot_{uuid.uuid4().hex[:8]}.pptx"
-    filepath = os.path.join("outputs", filename)
-    os.makedirs("outputs", exist_ok=True)
-    prs.save(filepath)
-
-    return filepath
+if __name__ == "__main__":
+    import asyncio
+    import sys
+    if sys.platform == "win32":
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    asyncio.run(main())
