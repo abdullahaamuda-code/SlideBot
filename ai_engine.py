@@ -102,3 +102,65 @@ def generate_slide_content(user_input, num_slides=8):
 
     print("All AIs failed ❌")
     return None
+
+def generate_from_text(raw_text: str, num_slides: int = 8):
+    # Chunk if too long
+    words = raw_text.split()
+    if len(words) > 2000:
+        chunks = []
+        chunk_size = 1500
+        for i in range(0, len(words), chunk_size):
+            chunk = " ".join(words[i:i+chunk_size])
+            chunks.append(chunk)
+        summaries = []
+        for chunk in chunks[:4]:
+            try:
+                response = gemini_client.models.generate_content(
+                    model="gemini-2.0-flash",
+                    contents=f"Summarize this into 4 key points:\n\n{chunk}"
+                )
+                summaries.append(response.text.strip())
+            except Exception:
+                try:
+                    r = groq_client.chat.completions.create(
+                        model="llama-3.3-70b-versatile",
+                        messages=[{"role": "user", "content": f"Summarize into 4 key points:\n\n{chunk}"}]
+                    )
+                    summaries.append(r.choices[0].message.content.strip())
+                except Exception:
+                    pass
+        raw_text = "\n\n".join(summaries)
+
+    prompt = PROMPT_TEMPLATE.format(
+        user_input=f"Create slides based on this content:\n\n{raw_text}",
+        num_slides=num_slides
+    )
+
+    print("Trying Gemini for raw text...")
+    try:
+        response = gemini_client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt
+        )
+        text = clean_json(response.text)
+        result = json.loads(text)
+        print("Gemini succeeded ✅")
+        return result
+    except Exception as e:
+        print(f"Gemini failed: {e}")
+
+    print("Trying Groq for raw text...")
+    try:
+        response = groq_client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7
+        )
+        text = clean_json(response.choices[0].message.content)
+        result = json.loads(text)
+        print("Groq succeeded ✅")
+        return result
+    except Exception as e:
+        print(f"Groq failed: {e}")
+
+    return None
