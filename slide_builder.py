@@ -325,10 +325,18 @@ def build_title_slide(prs, title, theme, keyword="abstract"):
     set_bg(slide, theme["bg"])
 
     img = fetch_image(keyword)
+    has_image = False
     if img:
+        has_image = True
         add_image_to_slide(slide, img, 0, 0, SLIDE_W, SLIDE_H)
         overlay = add_rect(slide, 0, 0, SLIDE_W, SLIDE_H, RGBColor(0x00, 0x00, 0x00))
         overlay.fill.transparency = 0.4
+
+    # Decide title color based on background
+    if has_image:
+        title_color = RGBColor(0xFF, 0xFF, 0xFF)  # white over darkened image
+    else:
+        title_color = theme["title_color"]        # theme color on plain bg
 
     # Gradient-like effect with multiple accent bars
     add_rect(slide, 0, Inches(5.5), SLIDE_W, Inches(2.0), theme["accent"], transparency=0.15)
@@ -343,7 +351,7 @@ def build_title_slide(prs, title, theme, keyword="abstract"):
         Inches(11.73),
         Inches(2.5),
         Pt(52),
-        theme["title_color"],
+        title_color,
         bold=True,
         align=PP_ALIGN.CENTER,
     )
@@ -360,7 +368,6 @@ def build_title_slide(prs, title, theme, keyword="abstract"):
         align=PP_ALIGN.CENTER,
         italic=True,
     )
-
 
 # ─── LAYOUT A — Split screen with rounded image and cards ─────────
 def build_layout_a(prs, heading, bullets, theme, keyword):
@@ -720,6 +727,15 @@ def build_layout_f(prs, heading, bullets, theme, keyword):
     # Top accent
     add_rect(slide, 0, 0, SLIDE_W, Inches(0.1), theme["accent"])
 
+    # Try to fetch image first (we'll use this to decide text color)
+    img = fetch_image(keyword)
+
+    # Decide heading color based on whether we have an image
+    if img:
+        heading_color = RGBColor(0xFF, 0xFF, 0xFF)  # white on deep image
+    else:
+        heading_color = theme["heading_color"]      # fallback to theme color
+
     # Main heading
     add_text(
         slide,
@@ -729,55 +745,40 @@ def build_layout_f(prs, heading, bullets, theme, keyword):
         Inches(11.73),
         Inches(0.9),
         Pt(32),
-        theme["heading_color"],
+        heading_color,
         bold=True,
         align=PP_ALIGN.LEFT,
     )
 
-    # Split bullets into two columns
-    mid = len(bullets) // 2
-    col1 = bullets[:mid]
-    col2 = bullets[mid:]
-
-    # Left column
-    left_top = Inches(1.6)
-    for bullet in col1[:4]:
-        add_rect(slide, Inches(0.7), left_top + Inches(0.12), Inches(0.1), Inches(0.1), theme["accent"], radius=30000)
-        add_text(
-            slide,
-            bullet,
-            Inches(1.0),
-            left_top,
-            Inches(5.0),
-            Inches(0.65),
-            Pt(16),
-            theme["bullet_color"],
-            align=PP_ALIGN.LEFT,
-        )
-        left_top += Inches(0.85)
-
-    # Right column with image
-    img = fetch_image(keyword)
+    # If we have an image, place it on the right
     if img:
         rounded = make_rounded_image(img, radius=50)
         add_image_to_slide(slide, rounded, Inches(7.0), Inches(1.6), Inches(5.8), Inches(4.5))
 
-    # Right column bullets if space
-    right_top = Inches(1.6)
-    for bullet in col2[:3]:
-        add_rect(slide, Inches(7.0), right_top + Inches(0.12), Inches(0.1), Inches(0.1), theme["accent"], radius=30000)
+    # Single list of bullets (no more 2-2 split)
+    top = Inches(1.6)
+    for bullet in bullets[:4]:
+        add_rect(
+            slide,
+            Inches(0.7),
+            top + Inches(0.12),
+            Inches(0.1),
+            Inches(0.1),
+            theme["accent"],
+            radius=30000,
+        )
         add_text(
             slide,
             bullet,
-            Inches(7.3),
-            right_top,
-            Inches(5.5),
+            Inches(1.0),
+            top,
+            Inches(6.0),
             Inches(0.65),
             Pt(16),
             theme["bullet_color"],
             align=PP_ALIGN.LEFT,
         )
-        right_top += Inches(0.85)
+        top += Inches(0.85)
 
     # Bottom bar
     add_rect(slide, 0, Inches(7.4), SLIDE_W, Inches(0.1), theme["accent"])
