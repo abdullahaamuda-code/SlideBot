@@ -157,6 +157,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def change_theme_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle change theme button callback - sends NEW message instead of editing"""
     query = update.callback_query
     await query.answer()
     uid = str(query.from_user.id)
@@ -171,12 +172,20 @@ async def change_theme_callback(update: Update, context: ContextTypes.DEFAULT_TY
     back_button = [[InlineKeyboardButton("◀️ Back to Menu", callback_data="back_to_start")]]
     new_keyboard = InlineKeyboardMarkup(keyboard_list + back_button)
     
-    await query.edit_message_text(
+    # 🔥 FIX: Send a NEW message instead of trying to edit the old one
+    await query.message.reply_text(
         f"🎨 **Choose your slide style**\n\nCurrent: **{current.title()}**\n\n"
         f"{'🔓 All themes unlocked!' if is_premium(uid) else '🔒 Premium themes require upgrade'}",
         reply_markup=new_keyboard,
         parse_mode="Markdown"
     )
+    
+    # Optional: Delete the previous message to keep chat clean
+    try:
+        await query.message.delete()
+    except:
+        pass
+        
 async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -201,7 +210,7 @@ async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         help_text += "📊 **Your plan: Free**\n• 2 decks/day\n• Up to 8 slides\n• Classic & Dark themes\n\nType /upgrade for unlimited! 💎"
     
-    # ADDED: Back button instead of Change Theme button
+    # 🔥 FIX: Add Back button
     keyboard = [[InlineKeyboardButton("◀️ Back to Menu", callback_data="back_to_start")]]
     await query.edit_message_text(help_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
@@ -490,44 +499,37 @@ async def theme_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Check premium restriction
     if theme_name in PREMIUM_THEMES and not is_premium(uid):
+        keyboard = [[InlineKeyboardButton("◀️ Back to Menu", callback_data="back_to_start")]]
         await query.edit_message_text(
             "🔒 **Premium Theme Locked**\n\n"
             f"*{theme_name.title()}* is for Premium users only.\n\n"
-            "💎 **Upgrade to Premium** for:\n"
-            "• All 6 themes\n"
-            "• Unlimited presentations\n"
-            "• Up to 30 slides\n"
-            "• Unlimited URL/file uploads\n\n"
-            "Type /upgrade to get started! 🚀",
+            "💎 Type /upgrade to unlock all themes!",
+            reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
         return
     
     # Save the selected theme
     context.user_data["theme"] = theme_name
-    
-    # Save to database for persistence
-    from database import save_user_theme
     save_user_theme(uid, theme_name)
     
-    # If user has pending topic and slides, generate immediately
+    # 🔥 FIX: If there's a pending generation, continue; otherwise show success
     if "pending_topic" in context.user_data and "pending_slides" in context.user_data:
         topic = context.user_data.pop("pending_topic")
         num_slides = context.user_data.pop("pending_slides")
         raw_text = context.user_data.pop("pending_raw_text", None)
-        await query.edit_message_text(f"✅ Theme: **{theme_name.title()}** applied!\n\n🎯 Generating your {num_slides}-slide deck...", parse_mode="Markdown")
+        await query.edit_message_text(f"✅ Theme: **{theme_name.title()}** applied!\n\n🎯 Generating your {num_slides}-slide deck...")
         await start_generation(query, context, topic, num_slides, theme_name, raw_text=raw_text)
     else:
+        # 🔥 FIX: Show success and return to main menu
+        keyboard = [[InlineKeyboardButton("◀️ Back to Menu", callback_data="back_to_start")]]
         await query.edit_message_text(
             f"✅ **Theme saved: {theme_name.title()}**\n\n"
-            "This theme will be used for all your presentations.\n\n"
-            "📝 **Now send me your topic** or paste a URL to begin!",
-            reply_markup=InlineKeyboardMarkup([[
-                InlineKeyboardButton("📖 How to use", callback_data="show_help")
-            ]]),
+            "This theme will be used as your default.\n\n"
+            "📝 **Send me a topic** to create a presentation!",
+            reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
-
 
 # ─── CORE GENERATION ──────────────────────────────────────────────
 async def start_generation(query, context, topic, num_slides, theme, raw_text=None):
