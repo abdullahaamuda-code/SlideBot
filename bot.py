@@ -563,7 +563,9 @@ class PingHandler(BaseHTTPRequestHandler):
         pass
 
 def run_ping_server():
-    server = HTTPServer(("0.0.0.0", 8080), PingHandler)
+    port = int(os.getenv("PORT", 10000))
+    server = HTTPServer(("0.0.0.0", port), PingHandler)
+    print(f"Ping server running on port {port}")
     server.serve_forever()
 # ─── MAIN ─────────────────────────────────────────────────────────
 async def main():
