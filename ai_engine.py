@@ -1,100 +1,114 @@
 import os
 import json
-from groq import Groq
+import time
+from groq import Groq, RateLimitError, APIError
 
-# Initialize Groq client
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 client = Groq(api_key=GROQ_API_KEY)
 
+# Use this active model instead
+ACTIVE_MODEL = "llama-3.3-70b-versatile"  # or "llama-3.1-8b-instant"
+
+def call_groq_with_retry(messages, max_tokens=4000, retries=3):
+    """Call Groq API with automatic retry logic using active model"""
+    
+    for attempt in range(retries):
+        try:
+            response = client.chat.completions.create(
+                model=ACTIVE_MODEL,  # Changed from mixtral-8x7b-32768
+                messages=messages,
+                temperature=0.7,
+                max_tokens=max_tokens,
+                timeout=90
+            )
+            return response.choices[0].message.content
+            
+        except RateLimitError as e:
+            wait_time = (2 ** attempt) + (attempt * 0.5)
+            print(f"⚠️ Rate limit hit (attempt {attempt+1}/{retries}), waiting {wait_time}s...")
+            time.sleep(wait_time)
+            
+        except APIError as e:
+            if "timeout" in str(e).lower():
+                print(f"⚠️ Timeout, retrying... (attempt {attempt+1}/{retries})")
+                time.sleep(2)
+            else:
+                print(f"❌ API Error: {e}")
+                if attempt == retries - 1:
+                    raise
+                time.sleep(1)
+                
+        except Exception as e:
+            print(f"❌ Unexpected error: {e}")
+            if attempt == retries - 1:
+                raise
+            time.sleep(2)
+    
+    raise Exception("All retries exhausted")
+
 def generate_slide_content(topic: str, num_slides: int) -> dict:
-    """
-    Generate structured slide content using Groq AI
-    Returns a dict with title, slides (heading, bullets, notes)
-    """
+    """Generate slide content using active Groq model"""
     
-    # Adjust slide count (include intro and conclusion)
-    content_slides = max(3, num_slides - 2)  # Subtract intro and conclusion
+    content_slides = max(3, num_slides - 2)
     
-    prompt = f"""You are a professional presentation designer. Create a complete PowerPoint presentation about "{topic}".
+    prompt = f"""You are a professional presentation designer. Create a PowerPoint presentation about "{topic}".
 
-Generate EXACTLY {num_slides} slides with this structure:
-- Slide 1: Title slide with creative title and subtitle
-- Slides 2 to {num_slides - 1}: Content slides (total of {content_slides} content slides)
-- Final slide: Conclusion & Call to Action
+Generate EXACTLY {num_slides} slides with:
+- Slide 1: Title slide with creative title
+- Slides 2 to {num_slides - 1}: Content slides ({content_slides} slides)
+- Final slide: Conclusion & Key Takeaways
 
-IMPORTANT RULES:
-1. Each content slide MUST have:
-   - A clear heading
-   - 2-3 sentences of explanation/context (NOT just bullets!)
-   - 3-4 bullet points for key takeaways
-   - An image keyword (e.g., "technology", "teamwork", "growth")
+Each content slide should have:
+- A clear heading
+- 3-4 bullet points (keep each under 15 words)
+- An image keyword (e.g., "technology", "teamwork", "growth")
 
-2. The Conclusion slide MUST have:
-   - Heading: "Conclusion & Key Takeaways" or similar
-   - Summary paragraph (3-4 sentences summarizing main points)
-   - 3-4 action items or next steps as bullets
-   - Image keyword related to "success" or "future"
-
-3. Do NOT make every slide only bullets. Mix paragraphs and bullets.
-
-4. Make the content professional, insightful, and actionable.
+Keep content concise, professional, and actionable.
 
 Return ONLY valid JSON in this exact format:
 
 {{
-  "title": "Main Presentation Title",
+  "title": "Presentation Title",
   "slides": [
     {{
-      "heading": "Introduction to [Topic]",
-      "bullets": [
-        "Key point 1 with explanation",
-        "Key point 2 with explanation",
-        "Key point 3 with explanation"
-      ],
-      "image_keyword": "abstract"
-    }},
-    {{
-      "heading": "Slide Heading",
-      "bullets": [
-        "First bullet point with context",
-        "Second bullet point with context",
-        "Third bullet point with context"
-      ],
+      "heading": "Section Heading",
+      "bullets": ["Point 1", "Point 2", "Point 3"],
       "image_keyword": "relevant_keyword"
     }}
   ]
-}}
-
-Generate {num_slides} slides total (title slide will be handled separately, so provide {num_slides - 1} content slides including conclusion)."""
+}}"""
 
     try:
-        response = client.chat.completions.create(
-            model="mixtral-8x7b-32768",
+        result = call_groq_with_retry(
             messages=[
-                {"role": "system", "content": "You are an expert presentation designer. Create engaging, well-structured PowerPoint content with a mix of explanatory text and bullet points. Always include proper conclusions."},
+                {"role": "system", "content": "You are an expert presentation designer. Return ONLY valid JSON. No markdown, no extra text."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.7,
             max_tokens=4000
         )
         
-        result = response.choices[0].message.content
-        # Clean up JSON (remove markdown code blocks if present)
+        # Clean and parse JSON
         result = result.replace("```json", "").replace("```", "").strip()
+        
+        # Remove any leading/trailing non-JSON text
+        import re
+        json_match = re.search(r'\{.*\}', result, re.DOTALL)
+        if json_match:
+            result = json_match.group(0)
         
         slide_data = json.loads(result)
         
         # Ensure we have the right number of slides
         if len(slide_data.get("slides", [])) < num_slides - 1:
-            # Add more slides if needed
+            # Add placeholder slides if needed
             current_slides = slide_data["slides"]
             while len(current_slides) < num_slides - 1:
                 current_slides.append({
-                    "heading": f"More About {topic}",
+                    "heading": f"Key Insight {len(current_slides)+1}",
                     "bullets": [
-                        "Additional insight about this topic",
-                        "Another important perspective to consider",
-                        "Key takeaway for your audience"
+                        "Important consideration for success",
+                        "Actionable strategy to implement",
+                        "Measurable outcome to track"
                     ],
                     "image_keyword": "business"
                 })
@@ -103,136 +117,102 @@ Generate {num_slides} slides total (title slide will be handled separately, so p
         return slide_data
         
     except Exception as e:
-        print(f"AI generation error: {e}")
-        # Return fallback content
+        print(f"❌ Generation failed after retries: {e}")
         return generate_fallback_content(topic, num_slides)
 
 
 def generate_from_text(raw_text: str, num_slides: int) -> dict:
-    """
-    Generate slide content from extracted text (URL, PDF, DOCX)
-    """
+    """Generate slide content from extracted text using active model"""
     
-    # Truncate text if too long
     if len(raw_text) > 8000:
         raw_text = raw_text[:8000]
     
     content_slides = max(3, num_slides - 2)
     
-    prompt = f"""You are a professional presentation designer. Create a PowerPoint presentation based on this text:
+    prompt = f"""Create a PowerPoint presentation from this text:
 
---- START OF TEXT ---
+--- TEXT ---
 {raw_text}
---- END OF TEXT ---
+--- END TEXT ---
 
-Generate EXACTLY {num_slides} slides with this structure:
-- Slide 1: Title slide (extract or create a compelling title)
-- Slides 2 to {num_slides - 1}: Content slides ({content_slides} slides)
-- Final slide: Conclusion & Key Takeaways
+Generate EXACTLY {num_slides} slides with:
+- Title slide
+- {content_slides} content slides extracting key information
+- Conclusion slide
 
-IMPORTANT RULES:
-1. Extract the most important information from the text
-2. Each content slide MUST have:
-   - A clear heading
-   - 2-3 sentences of explanation (summarizing the text)
-   - 3-4 bullet points for key details
-   - An image keyword related to the content
+Each content slide needs: heading, 3-4 concise bullet points, image keyword.
 
-3. The Conclusion slide MUST have:
-   - Heading: "Key Takeaways" or "Summary"
-   - A paragraph summarizing the main points
-   - 3-4 action items or recommendations as bullets
-
-4. Do NOT make every slide only bullets. Include explanatory paragraphs.
-
-Return ONLY valid JSON in this format:
-
+Return ONLY valid JSON:
 {{
   "title": "Presentation Title",
   "slides": [
-    {{
-      "heading": "Section Heading",
-      "bullets": [
-        "Important point from the text",
-        "Another key insight",
-        "Supporting detail"
-      ],
-      "image_keyword": "relevant_keyword"
-    }}
+    {{"heading": "Heading", "bullets": ["point1", "point2", "point3"], "image_keyword": "keyword"}}
   ]
-}}
-
-Generate {num_slides - 1} content slides (including conclusion)."""
+}}"""
 
     try:
-        response = client.chat.completions.create(
-            model="mixtral-8x7b-32768",
+        result = call_groq_with_retry(
             messages=[
-                {"role": "system", "content": "You are an expert at summarizing text into professional presentations. Create engaging slides with a mix of paragraphs and bullet points."},
+                {"role": "system", "content": "You are an expert at summarizing text into presentations. Return ONLY valid JSON."},
                 {"role": "user", "content": prompt}
             ],
-            temperature=0.7,
             max_tokens=4000
         )
         
-        result = response.choices[0].message.content
         result = result.replace("```json", "").replace("```", "").strip()
+        
+        import re
+        json_match = re.search(r'\{.*\}', result, re.DOTALL)
+        if json_match:
+            result = json_match.group(0)
         
         slide_data = json.loads(result)
         
-        # Add title if missing
         if not slide_data.get("title"):
-            slide_data["title"] = "Presentation from Document"
+            slide_data["title"] = "Document Summary"
         
         return slide_data
         
     except Exception as e:
-        print(f"Text generation error: {e}")
-        # Extract a title from the text
-        title = raw_text[:50].strip() + "..."
-        return generate_fallback_content(title, num_slides)
+        print(f"❌ Text generation failed: {e}")
+        return generate_fallback_content("Document Content", num_slides)
 
 
 def generate_fallback_content(topic: str, num_slides: int) -> dict:
-    """
-    Fallback content if AI fails
-    """
+    """Fallback content if AI fails"""
     slides = []
     
-    # Introduction slide
     slides.append({
         "heading": f"Introduction to {topic}",
         "bullets": [
-            f"Understanding the importance of {topic} in today's world",
-            f"Key challenges and opportunities in this space",
-            f"What you'll learn from this presentation",
-            f"Real-world applications and case studies"
+            f"Understanding the importance of {topic}",
+            "Key challenges and opportunities",
+            "What you'll learn from this presentation",
+            "Real-world applications and case studies"
         ],
         "image_keyword": "introduction"
     })
     
-    # Middle content slides
     middle_slides = max(2, num_slides - 3)
     for i in range(middle_slides):
         slides.append({
-            "heading": f"Key Aspect {i+1} of {topic}",
+            "heading": f"Key Aspect {i+1}",
             "bullets": [
-                f"Important factor to consider about {topic}",
-                f"How this impacts your strategy and decisions",
-                f"Best practices and proven approaches",
-                f"Common mistakes to avoid"
+                f"Important factor to consider",
+                "How this impacts your strategy",
+                "Best practices and proven approaches",
+                "Common mistakes to avoid"
             ],
             "image_keyword": "business"
         })
     
-    # Conclusion slide
     slides.append({
-        "heading": "Conclusion & Key Takeaways",
+        "heading": "Conclusion & Next Steps",
         "bullets": [
-            f"{topic} offers significant opportunities for growth",
-            "Implement these strategies for better results",
-            "Stay updated with latest trends and developments",
-            "Take action today to leverage these insights"
+            "Key takeaways from this presentation",
+            "Actionable strategies to implement",
+            "Resources for further learning",
+            "Ready to take the next step"
         ],
         "image_keyword": "success"
     })
@@ -241,21 +221,3 @@ def generate_fallback_content(topic: str, num_slides: int) -> dict:
         "title": f"Understanding {topic}",
         "slides": slides
     }
-
-
-# Optional: Function to add explanatory paragraphs to slides
-def enhance_slide_with_paragraph(slide_data: dict) -> dict:
-    """
-    Add explanatory paragraphs to slides that only have bullets
-    """
-    for slide in slide_data.get("slides", []):
-        if "paragraph" not in slide:
-            # Generate a paragraph from the heading and first bullet
-            heading = slide.get("heading", "")
-            bullets = slide.get("bullets", [])
-            if bullets:
-                slide["paragraph"] = f"{heading}. {bullets[0]} This section explores key insights and actionable strategies to help you succeed."
-            else:
-                slide["paragraph"] = f"This section covers important aspects of {heading.lower()} with practical examples and expert recommendations."
-    
-    return slide_data
