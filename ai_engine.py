@@ -148,22 +148,24 @@ def generate_with_groq(user_input: str, num_slides: int):
         return None
 
 def generate_slide_content(user_input: str, num_slides: int = 8):
-    """Main function - clears old context, generates fresh content"""
-    print(f"\n🎨 Generating {num_slides} slides for: {user_input[:100]}...")
+    print(f"\n🎨 Generating {num_slides} slides for: {user_input[:50]}...")
     
     # Try Gemini first
     result = generate_with_gemini(user_input, num_slides)
     if result:
+        result = ensure_intro_and_conclusion(result, user_input, num_slides)
         return result
     
     # Try Groq as fallback
     result = generate_with_groq(user_input, num_slides)
     if result:
+        result = ensure_intro_and_conclusion(result, user_input, num_slides)
         return result
     
     # Ultimate fallback
-    print("⚠️ All AIs failed, using fallback content")
-    return generate_fallback_content(user_input, num_slides)
+    fallback = generate_fallback_content(user_input, num_slides)
+    fallback = ensure_intro_and_conclusion(fallback, user_input, num_slides)
+    return fallback
 
 def generate_from_text(raw_text: str, num_slides: int = 8):
     """Generate from extracted text"""
