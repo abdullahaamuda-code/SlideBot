@@ -105,23 +105,13 @@ async def slide_count_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data["pending_slides"] = num_slides
     uid = str(query.from_user.id)
     
-    # If theme already selected, generate immediately
-    if "theme" in context.user_data:
-        theme = context.user_data["theme"]
-        await query.edit_message_text(f"🎯 **{num_slides} slides** — generating your deck now...")
-        await start_generation(
-            query, context,
-            context.user_data.get("pending_topic", ""),
-            num_slides, theme,
-            raw_text=context.user_data.get("pending_raw_text")
-        )
-    else:
-        await query.edit_message_text(
-            "🎨 **Great! Now pick your slide style**\n\n"
-            "Each theme has unique colors and layouts:",
-            reply_markup=get_theme_keyboard(uid, context.user_data.get("theme")),
-            parse_mode="Markdown"
-        )
+    # 🔥 ALWAYS ask for theme - never auto-generate
+    await query.edit_message_text(
+        "🎨 **Great! Now pick your slide style**\n\n"
+        "Each theme has unique colors and layouts:",
+        reply_markup=get_theme_keyboard(uid, None),  # Pass None for current theme
+        parse_mode="Markdown"
+    )
 
 async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -140,18 +130,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = str(user.id)
     get_or_create_user(uid, str(user.username or user.first_name))
     
-    # Load saved theme if exists
-    from database import get_user_theme, save_user_theme
+    # 🔥 REMOVE the theme loading - don't pre-set it
+    # Just get the saved theme for display only
+    from database import get_user_theme
     saved_theme = get_user_theme(uid)
-    if saved_theme:
-        context.user_data["theme"] = saved_theme
+    # DON'T set context.user_data["theme"] here
     
-    # ADDED: Status button in the keyboard
     keyboard = [
         [InlineKeyboardButton("📖 How to use", callback_data="show_help")],
         [InlineKeyboardButton("🎨 Change Theme", callback_data="change_theme")],
         [InlineKeyboardButton("💎 Upgrade to Premium", callback_data="show_upgrade")],
-        [InlineKeyboardButton("📊 My Status", callback_data="show_status")]  # NEW
+        [InlineKeyboardButton("📊 My Status", callback_data="show_status")]
     ]
     await update.message.reply_text(
         f"✨ **Hey {user.first_name}!** ✨\n\n"
@@ -162,7 +151,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• *My business pitch*\n"
         "• *Digital marketing trends*\n\n"
         "📎 Or send me a **URL, PDF, or Word doc** to convert!\n\n"
-        f"{'🎨 Current theme: ' + saved_theme.title() if saved_theme else '🎨 Pick a theme below'}",
+        f"{'🎨 Your saved theme: ' + saved_theme.title() if saved_theme else '🎨 You will pick a theme for each presentation'}",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
@@ -608,6 +597,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     get_or_create_user(uid, str(user.username or user.first_name))
 
+    context.user_data.pop("theme", None)
     # URL detection
     if text.startswith("http://") or text.startswith("https://"):
         if not can_use_url(uid):
