@@ -529,7 +529,7 @@ def build_layout_d(prs, heading, bullets, theme, keyword):
 
 
 # ─── THANK YOU SLIDE ──────────────────────────────────────────────
-def build_thankyou_slide(prs, theme, is_premium=is_premium):
+def build_thankyou_slide(prs, theme, is_premium=False):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_bg(slide, theme["bg"])
 
