@@ -1,16 +1,13 @@
 import os
 import uuid
-import random
 import requests
 from io import BytesIO
-
-from dotenv import load_dotenv
 from pptx import Presentation
-from pptx.util import Inches, Pt, Emu
+from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
-from pptx.enum.text import PP_ALIGN, PP_PARAGRAPH_ALIGNMENT
+from pptx.enum.text import PP_ALIGN
 from pptx.enum.shapes import MSO_SHAPE
-
+from dotenv import load_dotenv  # Add this line with the other imports
 from PIL import Image, ImageDraw
 
 load_dotenv()
@@ -692,3 +689,177 @@ def build_layout_e(prs, heading, bullets, theme, keyword):
         top += Inches(1.05)
 
     # Decorative image
+# ─── LAYOUT F — Two-column comparison with side accents ────────────
+def build_layout_f(prs, heading, bullets, theme, keyword):
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    set_bg(slide, theme["bg"])
+
+    # Corner brackets
+    add_corner_bracket(slide, Inches(0.2), Inches(0.2), 0.4, theme["soft_accent"], "tl")
+    add_corner_bracket(slide, SLIDE_W - Inches(0.2), SLIDE_H - Inches(0.2), 0.4, theme["soft_accent"], "br")
+    
+    # Side accent bars
+    add_rect(slide, Inches(0.06), 0, Inches(0.06), SLIDE_H, theme["accent"], transparency=0.3)
+    add_rect(slide, SLIDE_W - Inches(0.12), 0, Inches(0.06), SLIDE_H, theme["accent"], transparency=0.3)
+
+    # Top accent bar
+    add_rect(slide, 0, 0, SLIDE_W, Inches(0.08), theme["accent"])
+
+    # Main heading
+    add_text(
+        slide,
+        heading,
+        Inches(0.7),
+        Inches(0.4),
+        Inches(11.73),
+        Inches(0.9),
+        Pt(32),
+        theme["heading_color"],
+        bold=True,
+        align=PP_ALIGN.LEFT,
+    )
+    
+    add_rect(slide, Inches(0.7), Inches(1.3), Inches(2.5), Inches(0.06), theme["accent"], radius=30000)
+
+    # Split bullets into two columns
+    mid = len(bullets) // 2
+    col1 = bullets[:mid]
+    col2 = bullets[mid:]
+
+    # Left column bullets
+    left_top = Inches(1.6)
+    for bullet in col1[:4]:
+        add_circle(slide, Inches(0.7), left_top + Inches(0.08), Inches(0.1), Inches(0.1), theme["accent"])
+        add_text(
+            slide,
+            bullet,
+            Inches(1.0),
+            left_top,
+            Inches(5.0),
+            Inches(0.65),
+            Pt(16),
+            theme["bullet_color"],
+            align=PP_ALIGN.LEFT,
+        )
+        left_top += Inches(0.85)
+
+    # Right side image
+    img = fetch_unsplash_image(keyword)
+    if img:
+        rounded = make_rounded_image(img, radius=50)
+        add_image_to_slide(slide, rounded, Inches(7.0), Inches(1.6), Inches(5.8), Inches(4.5))
+        add_circle(slide, Inches(12.0), Inches(5.5), Inches(0.8), Inches(0.8), theme["accent"], transparency=0.5)
+
+    # Right column bullets (if space below image)
+    right_top = Inches(6.3)
+    for bullet in col2[:2]:
+        add_circle(slide, Inches(7.0), right_top + Inches(0.08), Inches(0.08), Inches(0.08), theme["accent2"])
+        add_text(
+            slide,
+            bullet,
+            Inches(7.3),
+            right_top,
+            Inches(5.5),
+            Inches(0.6),
+            Pt(14),
+            theme["bullet_color"],
+            align=PP_ALIGN.LEFT,
+        )
+        right_top += Inches(0.7)
+
+    # Bottom bar
+    add_rect(slide, 0, Inches(7.42), SLIDE_W, Inches(0.08), theme["accent"])
+
+# ─── THANK YOU SLIDE — Premium closing with full accents ──────────
+def build_thankyou_slide(prs, theme, is_premium=False):
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    set_bg(slide, theme["bg"])
+
+    # All 4 corner brackets
+    add_corner_bracket(slide, Inches(0.3), Inches(0.3), 0.5, theme["accent"], "tl")
+    add_corner_bracket(slide, SLIDE_W - Inches(0.3), Inches(0.3), 0.5, theme["accent"], "tr")
+    add_corner_bracket(slide, Inches(0.3), SLIDE_H - Inches(0.3), 0.5, theme["accent"], "bl")
+    add_corner_bracket(slide, SLIDE_W - Inches(0.3), SLIDE_H - Inches(0.3), 0.5, theme["accent"], "br")
+
+    # Side accent bars
+    add_rect(slide, 0, 0, Inches(0.1), SLIDE_H, theme["accent"])
+    add_rect(slide, SLIDE_W - Inches(0.1), 0, Inches(0.1), SLIDE_H, theme["accent"])
+    
+    # Top and bottom bars
+    add_rect(slide, 0, 0, SLIDE_W, Inches(0.1), theme["accent"])
+    add_rect(slide, 0, SLIDE_H - Inches(0.1), SLIDE_W, Inches(0.1), theme["accent"])
+
+    # Decorative circle element
+    add_circle(slide, Inches(5.0), Inches(1.8), Inches(3.33), Inches(3.33), theme["light_accent"], transparency=0.5)
+    add_circle(slide, Inches(4.5), Inches(4.5), Inches(4.5), Inches(4.5), theme["light_accent"], transparency=0.3)
+
+    # Main thank you text
+    add_text(
+        slide,
+        "Thank You",
+        Inches(1.0),
+        Inches(2.5),
+        Inches(11.33),
+        Inches(1.5),
+        Pt(54),
+        theme["title_color"],
+        bold=True,
+        align=PP_ALIGN.CENTER,
+    )
+
+    add_text(
+        slide,
+        "Created with SlideBot",
+        Inches(1.0),
+        Inches(4.8),
+        Inches(11.33),
+        Inches(0.6),
+        Pt(18),
+        theme["bullet_color"],
+        align=PP_ALIGN.CENTER,
+        italic=True,
+    )
+
+# ─── MAIN BUILD FUNCTION ──────────────────────────────────────────
+LAYOUTS = [
+    build_layout_a,
+    build_layout_b,
+    build_layout_c,
+    build_layout_d,
+    build_layout_e,
+    build_layout_f,
+]
+
+
+def build_presentation(slide_data: dict, theme_name: str = "classic", is_premium: bool = False) -> str:
+    theme = THEMES.get(theme_name, THEMES["classic"])
+
+    prs = Presentation()
+    prs.slide_width = SLIDE_W
+    prs.slide_height = SLIDE_H
+
+    slides = slide_data.get("slides", [])
+    title = slide_data.get("title", "My Presentation")
+
+    # Title slide — use first slide keyword
+    first_keyword = slides[0].get("image_keyword", "business") if slides else "business"
+    build_title_slide(prs, title, theme, first_keyword)
+
+    # Content slides with rotating layouts
+    content_slides = slides[1:-1] if len(slides) > 2 else slides
+    for idx, slide in enumerate(content_slides):
+        heading = slide.get("heading", "")
+        bullets = slide.get("bullets", [])
+        keyword = slide.get("image_keyword", "business")
+        layout_fn = LAYOUTS[idx % len(LAYOUTS)]
+        layout_fn(prs, heading, bullets, theme, keyword)
+
+    # Thank you
+    build_thankyou_slide(prs, theme)
+
+    filename = f"slidebot_{uuid.uuid4().hex[:8]}.pptx"
+    filepath = os.path.join("outputs", filename)
+    os.makedirs("outputs", exist_ok=True)
+    prs.save(filepath)
+
+    return filepath
