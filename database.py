@@ -1,12 +1,6 @@
 import os
-from dotenv import load_dotenv
-from datetime import datetime
-
-load_dotenv()
-
-# We use a simple JSON file to start
-# No Supabase needed yet — keeps it simple and free
 import json
+from datetime import datetime
 
 DB_FILE = "users.json"
 
@@ -20,8 +14,6 @@ def load_db():
 def save_db(data):
     with open(DB_FILE, "w") as f:
         json.dump(data, f, indent=2)
-
-# ─── USER FUNCTIONS ───────────────────────────────────────────────
 
 def get_user(telegram_id: str):
     db = load_db()
@@ -40,7 +32,10 @@ def create_user(telegram_id: str, username: str):
             "total_presentations": 0,
             "joined": str(datetime.now()),
             "premium_activated_by": None,
-            "premium_date": None
+            "premium_date": None,
+            "url_uses_this_month": 0,
+            "file_uses_this_month": 0,
+            "last_month_reset": str(datetime.now().strftime("%Y-%m")),
         }
         save_db(db)
     return db[uid]
@@ -63,12 +58,57 @@ def reset_daily_count_if_needed(telegram_id: str):
         db[uid]["last_used_date"] = today
         save_db(db)
 
+def reset_monthly_if_needed(telegram_id: str):
+    db = load_db()
+    uid = str(telegram_id)
+    user = db.get(uid)
+    if not user:
+        return
+    current_month = datetime.now().strftime("%Y-%m")
+    if user.get("last_month_reset") != current_month:
+        db[uid]["url_uses_this_month"] = 0
+        db[uid]["file_uses_this_month"] = 0
+        db[uid]["last_month_reset"] = current_month
+        save_db(db)
+
 def increment_usage(telegram_id: str):
     db = load_db()
     uid = str(telegram_id)
     db[uid]["slides_today"] += 1
     db[uid]["total_presentations"] += 1
     save_db(db)
+
+def increment_url_usage(telegram_id: str):
+    reset_monthly_if_needed(telegram_id)
+    db = load_db()
+    uid = str(telegram_id)
+    db[uid]["url_uses_this_month"] = db[uid].get("url_uses_this_month", 0) + 1
+    save_db(db)
+
+def increment_file_usage(telegram_id: str):
+    reset_monthly_if_needed(telegram_id)
+    db = load_db()
+    uid = str(telegram_id)
+    db[uid]["file_uses_this_month"] = db[uid].get("file_uses_this_month", 0) + 1
+    save_db(db)
+
+def can_use_url(telegram_id: str) -> bool:
+    reset_monthly_if_needed(telegram_id)
+    user = get_user(str(telegram_id))
+    if not user:
+        return True
+    if user.get("is_premium"):
+        return True
+    return user.get("url_uses_this_month", 0) < 1
+
+def can_use_file(telegram_id: str) -> bool:
+    reset_monthly_if_needed(telegram_id)
+    user = get_user(str(telegram_id))
+    if not user:
+        return True
+    if user.get("is_premium"):
+        return True
+    return user.get("file_uses_this_month", 0) < 1
 
 def is_premium(telegram_id: str) -> bool:
     user = get_user(str(telegram_id))
@@ -105,11 +145,8 @@ def revoke_premium(telegram_id: str):
         return True
     return False
 
-# ─── ADMIN FUNCTIONS ──────────────────────────────────────────────
-
 def get_all_users():
-    db = load_db()
-    return db
+    return load_db()
 
 def get_premium_users():
     db = load_db()
