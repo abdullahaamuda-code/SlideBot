@@ -529,7 +529,7 @@ def build_layout_d(prs, heading, bullets, theme, keyword):
 
 
 # ─── THANK YOU SLIDE ──────────────────────────────────────────────
-def build_thankyou_slide(prs, theme):
+def build_thankyou_slide(prs, theme, is_premium=is_premium):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_bg(slide, theme["bg"])
 
@@ -582,7 +582,7 @@ LAYOUTS = [
 ]
 
 
-def build_presentation(slide_data: dict, theme_name: str = "classic") -> str:
+def build_presentation(slide_data: dict, theme_name: str = "classic", is_premium: bool = False) -> str:
     theme = THEMES.get(theme_name, THEMES["classic"])
 
     prs = Presentation()
