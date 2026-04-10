@@ -739,37 +739,37 @@ def build_layout_f(prs, heading, bullets, theme, keyword):
     add_rect(slide, Inches(6.5), Inches(1.5), Inches(0.03), Inches(5.5), theme["light_accent"], transparency=0.5, radius=30000)
 
 # ─── THANK YOU SLIDE — Premium closing with full accents ──────────
+# ─── THANK YOU SLIDE — Fixed (no overflowing circles) ────────────
 def build_thankyou_slide(prs, theme, is_premium=False):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_bg(slide, theme["bg"])
 
-    # All 4 corner brackets
-    add_corner_bracket(slide, Inches(0.3), Inches(0.3), 0.5, theme["accent"], "tl")
-    add_corner_bracket(slide, SLIDE_W - Inches(0.3), Inches(0.3), 0.5, theme["accent"], "tr")
-    add_corner_bracket(slide, Inches(0.3), SLIDE_H - Inches(0.3), 0.5, theme["accent"], "bl")
-    add_corner_bracket(slide, SLIDE_W - Inches(0.3), SLIDE_H - Inches(0.3), 0.5, theme["accent"], "br")
+    # Small corner brackets (not overflowing)
+    add_corner_bracket(slide, Inches(0.2), Inches(0.2), 0.35, theme["accent"], "tl")
+    add_corner_bracket(slide, SLIDE_W - Inches(0.2), Inches(0.2), 0.35, theme["accent"], "tr")
+    add_corner_bracket(slide, Inches(0.2), SLIDE_H - Inches(0.2), 0.35, theme["accent"], "bl")
+    add_corner_bracket(slide, SLIDE_W - Inches(0.2), SLIDE_H - Inches(0.2), 0.35, theme["accent"], "br")
 
-    # Side accent bars
-    add_rect(slide, 0, 0, Inches(0.08), SLIDE_H, theme["accent"])
-    add_rect(slide, SLIDE_W - Inches(0.08), 0, Inches(0.08), SLIDE_H, theme["accent"])
+    # Thin side accent bars
+    add_rect(slide, 0, 0, Inches(0.05), SLIDE_H, theme["accent"], transparency=0.3)
+    add_rect(slide, SLIDE_W - Inches(0.05), 0, Inches(0.05), SLIDE_H, theme["accent"], transparency=0.3)
     
-    # Top and bottom accent bars
-    add_rect(slide, 0, 0, SLIDE_W, Inches(0.08), theme["accent"])
-    add_rect(slide, 0, SLIDE_H - Inches(0.08), SLIDE_W, Inches(0.08), theme["accent"])
+    # Thin top and bottom accent bars
+    add_rect(slide, 0, 0, SLIDE_W, Inches(0.05), theme["accent"])
+    add_rect(slide, 0, SLIDE_H - Inches(0.05), SLIDE_W, Inches(0.05), theme["accent"])
 
-    # Decorative circle elements (behind, not covering anything)
-    add_circle(slide, Inches(5.0), Inches(1.8), Inches(3.33), Inches(3.33), theme["light_accent"], transparency=0.5)
-    add_circle(slide, Inches(4.5), Inches(4.5), Inches(4.5), Inches(4.5), theme["light_accent"], transparency=0.3)
+    # Small decorative circle (not overflowing - properly sized and positioned)
+    add_circle(slide, Inches(5.5), Inches(2.0), Inches(2.5), Inches(2.5), theme["light_accent"], transparency=0.6)
 
     # Main thank you text
     add_text(
         slide,
         "Thank You",
         Inches(1.0),
-        Inches(2.5),
+        Inches(2.3),
         Inches(11.33),
         Inches(1.5),
-        Pt(54),
+        Pt(48),
         theme["title_color"],
         bold=True,
         align=PP_ALIGN.CENTER,
@@ -780,17 +780,17 @@ def build_thankyou_slide(prs, theme, is_premium=False):
         slide,
         "Created with SlideBot",
         Inches(1.0),
-        Inches(4.8),
+        Inches(4.5),
         Inches(11.33),
         Inches(0.6),
-        Pt(18),
+        Pt(16),
         theme["bullet_color"],
         align=PP_ALIGN.CENTER,
         italic=True,
     )
     
-    # Optional: Add a small decorative element at the bottom
-    add_rect(slide, Inches(5.5), Inches(6.5), Inches(2.33), Inches(0.05), theme["accent"], radius=30000, transparency=0.5)
+    # Small decorative line at bottom
+    add_rect(slide, Inches(5.8), Inches(6.8), Inches(1.73), Inches(0.04), theme["accent"], radius=30000, transparency=0.4)
 
 # ─── MAIN BUILD FUNCTION ──────────────────────────────────────────
 LAYOUTS = [
