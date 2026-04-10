@@ -89,6 +89,10 @@ THEMES = {
 
 def fetch_unsplash_image(keyword: str):
     try:
+        if not UNSPLASH_KEY:
+            print("❌ No Unsplash key found")
+            return None
+
         url = "https://api.unsplash.com/photos/random"
         params = {
             "query": keyword,
@@ -96,16 +100,30 @@ def fetch_unsplash_image(keyword: str):
             "content_filter": "high",
             "client_id": UNSPLASH_KEY
         }
-        r = requests.get(url, params=params, timeout=8)
-        if r.status_code == 200:
-            img_url = r.json()["urls"]["regular"]
-            img_r = requests.get(img_url, timeout=10)
-            if img_r.status_code == 200:
-                return BytesIO(img_r.content)
-    except Exception as e:
-        print(f"Unsplash failed for '{keyword}': {e}")
-    return None
+        print(f"🖼 Fetching Unsplash image for: {keyword}")
+        r = requests.get(url, params=params, timeout=15)
+        print(f"🖼 Unsplash status: {r.status_code}")
 
+        if r.status_code == 200:
+            img_url = r.json()["urls"]["small"]
+            print(f"🖼 Got image URL: {img_url[:50]}")
+            img_r = requests.get(img_url, timeout=15)
+            print(f"🖼 Image download status: {img_r.status_code}")
+            if img_r.status_code == 200:
+                print("✅ Image fetched successfully")
+                return BytesIO(img_r.content)
+        elif r.status_code == 403:
+            print("❌ Unsplash key invalid or rate limited")
+        elif r.status_code == 401:
+            print("❌ Unsplash unauthorized — check your key")
+        else:
+            print(f"❌ Unsplash error: {r.text[:200]}")
+
+    except requests.Timeout:
+        print(f"❌ Unsplash timeout for '{keyword}'")
+    except Exception as e:
+        print(f"❌ Unsplash failed for '{keyword}': {e}")
+    return None
 
 def make_rounded_image(image_stream, radius=60):
     """Returns a BytesIO PNG with rounded corners using Pillow."""
