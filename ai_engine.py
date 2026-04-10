@@ -1,86 +1,105 @@
 import os
 import json
 import re
+import traceback
 from dotenv import load_dotenv
 from google import genai
 from groq import Groq
 
 load_dotenv()
 
-gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+# ─── DEBUG: Check environment variables ──────────────────────────
+print("🔧 AI Engine Loading...")
+print(f"✅ GEMINI_API_KEY present: {'YES' if os.getenv('GEMINI_API_KEY') else 'NO'}")
+print(f"✅ GROQ_API_KEY present: {'YES' if os.getenv('GROQ_API_KEY') else 'NO'}")
 
+# Initialize clients
+try:
+    gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+    print("✅ Gemini client initialized")
+except Exception as e:
+    print(f"❌ Gemini init failed: {e}")
+    gemini_client = None
+
+try:
+    groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
+    print("✅ Groq client initialized")
+except Exception as e:
+    print(f"❌ Groq init failed: {e}")
+    groq_client = None
+
+# ─── SIMPLIFIED PROMPT TEMPLATE ──────────────────────────────────
 PROMPT_TEMPLATE = """
-You are a professional presentation designer. Generate structured slide content.
+Create a professional PowerPoint presentation about "{user_input}" with exactly {num_slides} slides.
 
-User input: {user_input}
-Number of slides: {num_slides}
+IMPORTANT: Return ONLY valid JSON. No markdown, no explanations, no extra text.
 
-IMPORTANT RULES:
-1. Each slide MUST have:
-   - A clear heading
-   - 1-2 sentences of explanation (NOT just bullets!)
-   - 3-5 bullet points for key details
-   - An image_keyword (single word for Unsplash)
-
-2. Slide structure:
-   - Slide 1: Introduction to the topic (explain what it is, why it matters)
-   - Slides 2 to {num_slides-1}: Content slides (each with explanation + bullets)
-   - Slide {num_slides}: Conclusion & Key Takeaways (summary + action items)
-
-3. For the Conclusion slide:
-   - Heading: "Conclusion & Key Takeaways"
-   - Explanation paragraph summarizing main points
-   - 3-4 bullet points as action items
-   - Image keyword: "success" or "future"
-
-4. Keep bullet points concise (under 15 words each)
-5. Make explanations informative (2-3 sentences)
-6. Be professional and engaging
-
-Respond ONLY with a JSON object exactly like this, nothing else, no markdown:
-
+JSON Format:
 {{
-    "title": "Professional Presentation Title",
+    "title": "Presentation Title",
     "slides": [
         {{
             "slide_number": 1,
             "heading": "Introduction to [Topic]",
-            "explanation": "This slide provides an overview of the key concepts and why this topic matters in today's context. Understanding these fundamentals will help you make better decisions.",
+            "explanation": "2-3 sentences explaining what this slide covers.",
             "image_keyword": "introduction",
-            "bullets": [
-                "First key point with clear insight",
-                "Second key point with actionable takeaway",
-                "Third key point that adds value"
-            ]
-        }},
-        {{
-            "slide_number": 2,
-            "heading": "Main Topic Area",
-            "explanation": "This section explores the core aspects of the topic, providing context and real-world applications that demonstrate its importance.",
-            "image_keyword": "business",
-            "bullets": [
-                "Important insight with supporting detail",
-                "Key strategy that drives results",
-                "Critical factor for success",
-                "Measurable outcome to track"
-            ]
+            "bullets": ["First key point", "Second key point", "Third key point"]
         }}
     ]
 }}
 
-Now generate for: {user_input}
-Number of slides: {num_slides}
+Requirements:
+- Slide 1: Introduction with explanation (2-3 sentences) and 3-4 bullets
+- Slides 2 to {num_slides-1}: Content slides with explanation and 3-4 bullets each
+- Slide {num_slides}: Conclusion with summary explanation and 3-4 action items as bullets
+
+Keep bullets short (under 15 words). Make it professional.
 """
 
+# ─── SIMPLIFIED TEXT PROMPT ──────────────────────────────────────
+TEXT_PROMPT_TEMPLATE = """
+Create a PowerPoint presentation from this text:
+
+--- TEXT ---
+{raw_text}
+--- END TEXT ---
+
+Generate exactly {num_slides} slides.
+
+Return ONLY valid JSON in this format:
+{{
+    "title": "Presentation Title",
+    "slides": [
+        {{
+            "slide_number": 1,
+            "heading": "Introduction",
+            "explanation": "2-3 sentence summary of what this text covers.",
+            "image_keyword": "introduction",
+            "bullets": ["Key point 1", "Key point 2", "Key point 3"]
+        }}
+    ]
+}}
+
+Requirements:
+- Slide 1: Introduction explaining what the text is about
+- Slides 2 to {num_slides-1}: Key points from the text with explanation
+- Slide {num_slides}: Conclusion with key takeaways
+
+Keep bullets short and professional.
+"""
+
+
+# ─── JSON CLEANING FUNCTION ──────────────────────────────────────
 def clean_json(text: str) -> str:
-    """Clean JSON-like response from an LLM into best-effort JSON string."""
+    """Clean JSON response from AI - handles markdown and common issues"""
     if not text:
+        print("⚠️ clean_json received empty text")
         return ""
-
+    
+    print(f"📝 Raw response preview: {text[:200]}...")
     text = text.strip()
-
-    # Remove markdown code fences if present
+    
+    # Remove markdown code blocks
     if "```json" in text:
         text = text.split("```json", 1)[1]
         if "```" in text:
@@ -89,356 +108,380 @@ def clean_json(text: str) -> str:
         text = text.split("```", 1)[1]
         if "```" in text:
             text = text.split("```", 1)[0]
-
+    
     text = text.strip()
-
-    # Extract first {...} block
+    
+    # Extract JSON object
     start = text.find("{")
     end = text.rfind("}")
     if start != -1 and end != -1 and end > start:
-        text = text[start : end + 1]
-
-    # Remove some common trailing-comma issues
-    text = re.sub(r",\s*}", "}", text)
-    text = re.sub(r",\s*]", "]", text)
-
+        text = text[start:end + 1]
+    else:
+        print("⚠️ Could not find JSON braces in response")
+        return ""
+    
+    # Fix common JSON issues
+    text = re.sub(r',\s*}', '}', text)
+    text = re.sub(r',\s*]', ']', text)
+    text = re.sub(r'([{,])\s*([a-zA-Z0-9_]+)\s*:', r'\1"\2":', text)
+    
+    print(f"✅ Cleaned JSON preview: {text[:150]}...")
     return text
 
 
+# ─── VALIDATE AND FIX SLIDES ─────────────────────────────────────
 def validate_and_fix_slides(result: dict, expected_slides: int) -> dict | None:
-    """Normalize slides: count, numbering, intro + conclusion, required fields."""
-    if not result or "slides" not in result or not isinstance(result["slides"], list):
+    """Validate and fix slide structure"""
+    print(f"🔍 Validating result with expected {expected_slides} slides...")
+    
+    if not result:
+        print("❌ Result is None")
         return None
-
-    slides = result["slides"]
-    topic = result.get("title", "the topic")
-
-    # Trim or pad to expected_slides
+    
+    if "slides" not in result:
+        print(f"❌ Result missing 'slides' key. Keys: {result.keys()}")
+        return None
+    
+    slides = result.get("slides", [])
+    if not slides:
+        print("❌ Slides list is empty")
+        return None
+    
+    print(f"✅ Found {len(slides)} slides in result")
+    
+    # Get title
+    title = result.get("title", "Presentation")
+    
+    # Ensure correct number of slides
     if len(slides) > expected_slides:
         slides = slides[:expected_slides]
+        print(f"✂️ Trimmed to {len(slides)} slides")
     elif len(slides) < expected_slides:
+        print(f"⚠️ Need {expected_slides - len(slides)} more slides, adding placeholders")
         for i in range(len(slides), expected_slides):
             slides.append({
                 "slide_number": i + 1,
-                "heading": f"Extra Insight {i+1}",
-                "explanation": (
-                    f"This slide adds additional context about {topic}, "
-                    "helping you deepen your understanding."
-                ),
+                "heading": f"Key Insight {i+1}",
+                "explanation": f"This section explores important aspects related to {title}.",
                 "image_keyword": "business",
                 "bullets": [
-                    "Additional point for better understanding",
-                    "Another practical implication",
-                    "Key reminder about this concept",
-                ],
+                    "Important factor to consider",
+                    "Strategy that drives results",
+                    "Actionable takeaway"
+                ]
             })
-
-    # Re‑enforce numbering 1..expected_slides and required fields
+    
+    # Fix each slide
     for idx, slide in enumerate(slides):
         slide["slide_number"] = idx + 1
-
+        
         if not slide.get("heading"):
-            slide["heading"] = f"Slide {idx+1}"
-
+            slide["heading"] = f"Slide {idx + 1}"
+        
         if not slide.get("explanation"):
-            slide["explanation"] = (
-                f"This slide covers important aspects of {slide['heading']}. "
-                "Understanding these points will help you apply the concepts effectively."
-            )
-
+            slide["explanation"] = f"This slide covers key points about {slide['heading']}."
+        
         if not slide.get("image_keyword"):
             slide["image_keyword"] = "business"
-
-        bullets = slide.get("bullets") or []
-        if not isinstance(bullets, list) or len(bullets) == 0:
-            bullets = [
-                "Key insight about this topic",
-                "Important factor to consider",
-                "Actionable takeaway for you",
-            ]
-        # max 5 bullets
+        
+        bullets = slide.get("bullets", [])
+        if not bullets or len(bullets) == 0:
+            bullets = ["Key point about this topic", "Important insight", "Actionable takeaway"]
         bullets = bullets[:5]
         slide["bullets"] = bullets
-
-    # Enforce INTRO slide (slide 1)
-    first = slides[0]
-    if not first.get("heading") or "intro" not in first["heading"].lower():
-        first["heading"] = f"Introduction to {topic}"
-
-    first["explanation"] = (
-        f"This slide introduces {topic} and explains why it matters in today's context. "
-        "It sets the stage for the rest of the presentation."
-    )
-    first["image_keyword"] = first.get("image_keyword") or "introduction"
-
-    # Enforce CONCLUSION slide (last slide)
-    last = slides[-1]
-    last["slide_number"] = expected_slides
-    last["heading"] = "Conclusion & Key Takeaways"
-    last["explanation"] = (
-        f"In conclusion, {topic} presents key opportunities and challenges. "
-        "By applying these insights, you can achieve better outcomes and drive meaningful results."
-    )
-    last["image_keyword"] = last.get("image_keyword") or "success"
-    last["bullets"] = [
-        "Review the main concepts and examples discussed",
-        "Identify 1–2 ideas to implement immediately",
-        "Share these insights with your team or stakeholders",
-        "Continue learning and refining your approach",
-    ][:4]
-
+    
+    # Ensure first slide is intro
+    slides[0]["heading"] = f"Introduction to {title}"
+    slides[0]["image_keyword"] = slides[0].get("image_keyword") or "introduction"
+    
+    # Ensure last slide is conclusion
+    slides[-1]["heading"] = "Conclusion & Key Takeaways"
+    slides[-1]["image_keyword"] = slides[-1].get("image_keyword") or "success"
+    
     result["slides"] = slides
+    result["title"] = title
+    
+    print(f"✅ Validation complete. Final slides: {len(slides)}")
     return result
 
 
+# ─── GENERATE WITH GEMINI ────────────────────────────────────────
 def generate_with_gemini(user_input: str, num_slides: int) -> dict | None:
-    """Generate content using Gemini 2.0 Flash."""
+    """Generate content using Gemini 2.0 Flash"""
+    if not gemini_client:
+        print("❌ Gemini client not available")
+        return None
+    
     try:
         prompt = PROMPT_TEMPLATE.format(
             user_input=user_input,
-            num_slides=num_slides,
+            num_slides=num_slides
         )
         print(f"📡 Calling Gemini API for: {user_input[:50]}...")
-
+        
         response = gemini_client.models.generate_content(
             model="gemini-2.0-flash",
-            contents=prompt,
+            contents=prompt
         )
-
-        text = clean_json(response.text)
-        result = json.loads(text)
-
-        result = validate_and_fix_slides(result, num_slides)
-
-        if result:
-            print(f"✅ Gemini succeeded! Generated {len(result.get('slides', []))} slides")
-        return result
-
+        
+        print(f"📥 Gemini response received")
+        raw_text = response.text
+        print(f"📝 Response length: {len(raw_text)} chars")
+        
+        cleaned = clean_json(raw_text)
+        if not cleaned:
+            print("❌ Failed to clean JSON from Gemini")
+            return None
+        
+        result = json.loads(cleaned)
+        print("✅ Gemini JSON parsed successfully")
+        
+        validated = validate_and_fix_slides(result, num_slides)
+        return validated
+        
+    except json.JSONDecodeError as e:
+        print(f"❌ Gemini JSON decode error: {e}")
+        print(f"Problematic text: {cleaned[:200] if 'cleaned' in locals() else 'N/A'}")
+        return None
     except Exception as e:
         print(f"❌ Gemini failed: {e}")
+        traceback.print_exc()
         return None
 
 
+# ─── GENERATE WITH GROQ ──────────────────────────────────────────
 def generate_with_groq(user_input: str, num_slides: int) -> dict | None:
-    """Generate content using Groq Llama 3.3 with JSON mode."""
+    """Generate content using Groq Llama 3.3"""
+    if not groq_client:
+        print("❌ Groq client not available")
+        return None
+    
     try:
         prompt = PROMPT_TEMPLATE.format(
             user_input=user_input,
-            num_slides=num_slides,
+            num_slides=num_slides
         )
         print(f"📡 Calling Groq API for: {user_input[:50]}...")
-
+        
         response = groq_client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[
-                {
-                    "role": "system",
-                    "content": "You are a professional presentation designer.",
-                },
-                {
-                    "role": "user",
-                    "content": prompt,
-                },
+                {"role": "system", "content": "You are a professional presentation designer. Return ONLY valid JSON."},
+                {"role": "user", "content": prompt}
             ],
             temperature=0.7,
-            max_tokens=4000,
-            # JSON mode – forces pure JSON string in message.content
-            response_format={"type": "json_object"},  # supported for this model[web:6][web:12]
+            max_tokens=4000
         )
-
-        text = response.choices[0].message.content
-        result = json.loads(text)
-
-        result = validate_and_fix_slides(result, num_slides)
-
-        if result:
-            print(f"✅ Groq succeeded! Generated {len(result.get('slides', []))} slides")
-        return result
-
+        
+        print(f"📥 Groq response received")
+        raw_text = response.choices[0].message.content
+        print(f"📝 Response length: {len(raw_text)} chars")
+        
+        cleaned = clean_json(raw_text)
+        if not cleaned:
+            print("❌ Failed to clean JSON from Groq")
+            return None
+        
+        result = json.loads(cleaned)
+        print("✅ Groq JSON parsed successfully")
+        
+        validated = validate_and_fix_slides(result, num_slides)
+        return validated
+        
+    except json.JSONDecodeError as e:
+        print(f"❌ Groq JSON decode error: {e}")
+        print(f"Problematic text: {cleaned[:200] if 'cleaned' in locals() else 'N/A'}")
+        return None
     except Exception as e:
         print(f"❌ Groq failed: {e}")
+        traceback.print_exc()
         return None
 
 
+# ─── GENERATE FROM TEXT ──────────────────────────────────────────
 def generate_from_text(raw_text: str, num_slides: int) -> dict:
-    """Generate slide content from extracted text (URL, PDF, DOCX)."""
-
+    """Generate slide content from extracted text"""
+    print(f"\n📄 Generating {num_slides} slides from text ({len(raw_text)} chars)...")
+    
     if len(raw_text) > 8000:
         raw_text = raw_text[:8000]
-
-    prompt = f"""You are a professional presentation designer. Create a presentation from this text:
-
---- START OF TEXT ---
-{raw_text}
---- END OF TEXT ---
-
-Generate EXACTLY {num_slides} slides with:
-1. Title slide (extract or create a compelling title)
-2. Introduction slide (explain what the text is about)
-3. {num_slides-2} content slides extracting key information
-4. Conclusion slide with key takeaways
-
-IMPORTANT: Each slide MUST have:
-- A clear heading
-- 1-2 sentences of explanation (NOT just bullets!)
-- 3-5 bullet points for key details
-- An image_keyword (single word for Unsplash)
-
-For the Conclusion slide:
-- Heading: "Conclusion & Key Takeaways"
-- Explanation paragraph summarizing main points
-- 3-4 bullet points as action items
-
-Return ONLY valid JSON in this format:
-{{
-    "title": "Presentation Title",
-    "slides": [
-        {{
-            "slide_number": 1,
-            "heading": "Section Heading",
-            "explanation": "This section provides context and explains why this matters...",
-            "image_keyword": "keyword",
-            "bullets": ["Point 1", "Point 2", "Point 3"]
-        }}
-    ]
-}}"""
-
+        print(f"✂️ Text truncated to 8000 chars")
+    
+    prompt = TEXT_PROMPT_TEMPLATE.format(
+        raw_text=raw_text,
+        num_slides=num_slides
+    )
+    
     # Try Gemini first
-    try:
-        print("📡 Generating from text with Gemini...")
-        response = gemini_client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=prompt,
-        )
-
-        text = clean_json(response.text)
-        result = json.loads(text)
-        result = validate_and_fix_slides(result, num_slides)
-
-        if result:
-            print("✅ Text generation with Gemini succeeded!")
-            return result
-
-    except Exception as e:
-        print(f"❌ Gemini text generation failed: {e}")
-
+    if gemini_client:
+        try:
+            print("📡 Trying Gemini for text generation...")
+            response = gemini_client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=prompt
+            )
+            
+            cleaned = clean_json(response.text)
+            if cleaned:
+                result = json.loads(cleaned)
+                validated = validate_and_fix_slides(result, num_slides)
+                if validated:
+                    print("✅ Text generation with Gemini succeeded!")
+                    return validated
+        except Exception as e:
+            print(f"❌ Gemini text generation failed: {e}")
+    
     # Try Groq as fallback
-    try:
-        print("📡 Trying Groq for text generation...")
-        response = groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a professional presentation designer.",
-                },
-                {
-                    "role": "user",
-                    "content": prompt,
-                },
-            ],
-            temperature=0.7,
-            max_tokens=4000,
-            response_format={"type": "json_object"},
-        )
-
-        text = response.choices[0].message.content
-        result = json.loads(text)
-        result = validate_and_fix_slides(result, num_slides)
-
-        if result:
-            print("✅ Groq text generation succeeded!")
-            return result
-
-    except Exception as e2:
-        print(f"❌ Groq text generation failed: {e2}")
-
-    # Fallback content if all fails
+    if groq_client:
+        try:
+            print("📡 Trying Groq for text generation...")
+            response = groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {"role": "system", "content": "You are a professional presentation designer. Return ONLY valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=4000
+            )
+            
+            cleaned = clean_json(response.choices[0].message.content)
+            if cleaned:
+                result = json.loads(cleaned)
+                validated = validate_and_fix_slides(result, num_slides)
+                if validated:
+                    print("✅ Text generation with Groq succeeded!")
+                    return validated
+        except Exception as e:
+            print(f"❌ Groq text generation failed: {e}")
+    
+    # Fallback
+    print("⚠️ All text generation failed, using fallback")
     return generate_fallback_content("Document Content", num_slides)
 
 
+# ─── FALLBACK CONTENT ────────────────────────────────────────────
 def generate_fallback_content(topic: str, num_slides: int) -> dict:
-    """Fallback content if all AI calls fail."""
-
+    """Fallback content if all AI calls fail"""
+    print(f"📋 Generating fallback content for: {topic[:50]}...")
+    
     slides = []
-
+    
     # Introduction slide
     slides.append({
         "slide_number": 1,
         "heading": f"Introduction to {topic}",
-        "explanation": (
-            f"This presentation explores the key aspects of {topic}, providing valuable "
-            "insights and actionable strategies. Understanding this topic is essential "
-            "for success in today's environment."
-        ),
+        "explanation": f"This presentation explores the key aspects of {topic}, providing valuable insights and actionable strategies for success.",
         "image_keyword": "introduction",
         "bullets": [
             f"What you need to know about {topic}",
             "Key challenges and opportunities",
             "Real-world applications and examples",
-            "Benefits of mastering this topic",
-        ],
+            "Benefits of mastering this topic"
+        ]
     })
-
+    
     # Middle content slides
     middle_count = max(2, num_slides - 2)
     for i in range(middle_count):
         slides.append({
             "slide_number": i + 2,
             "heading": f"Key Insight {i+1}",
-            "explanation": (
-                f"This section covers critical aspects of {topic} that will help you "
-                "understand and apply the concepts effectively in real situations."
-            ),
+            "explanation": f"This section covers critical aspects of {topic} that will help you understand and apply the concepts effectively.",
             "image_keyword": "business",
             "bullets": [
                 "Important factor to consider for success",
                 "Strategy that drives measurable results",
                 "Common pitfall to avoid",
-                "Best practice from industry leaders",
-            ],
+                "Best practice from industry leaders"
+            ]
         })
-
+    
     # Conclusion slide
     slides.append({
         "slide_number": num_slides,
         "heading": "Conclusion & Key Takeaways",
-        "explanation": (
-            f"In conclusion, {topic} offers significant opportunities for growth and "
-            "innovation. By applying these insights, you can achieve better outcomes."
-        ),
+        "explanation": f"In conclusion, {topic} offers significant opportunities for growth and innovation. By applying these insights, you can achieve better outcomes.",
         "image_keyword": "success",
         "bullets": [
             "Take action on these key insights",
             "Implement strategies incrementally",
             "Measure results and iterate",
-            "Continue learning and adapting",
-        ],
+            "Continue learning and adapting"
+        ]
     })
-
-    return {
+    
+    result = {
         "title": f"Understanding {topic}",
-        "slides": slides,
+        "slides": slides
     }
+    
+    print(f"✅ Fallback created with {len(slides)} slides")
+    return result
 
 
+# ─── MAIN FUNCTION ───────────────────────────────────────────────
 def generate_slide_content(user_input: str, num_slides: int = 8) -> dict:
     """
     Main function to generate slide content.
     Tries Gemini first, then Groq as fallback, then static fallback.
     """
-    print(f"\n🎨 Generating {num_slides} slides for: {user_input[:50]}...")
-
+    print(f"\n{'='*50}")
+    print(f"🎨 GENERATING {num_slides} SLIDES")
+    print(f"📝 Topic: {user_input[:100]}")
+    print(f"{'='*50}")
+    
     # Try Gemini first
-    result = generate_with_gemini(user_input, num_slides)
-    if result:
-        return result
-
+    if gemini_client:
+        print("\n🟢 Attempting Gemini...")
+        result = generate_with_gemini(user_input, num_slides)
+        if result:
+            print("✅ Gemini succeeded!")
+            print(f"📊 Generated {len(result.get('slides', []))} slides")
+            return result
+        else:
+            print("❌ Gemini failed")
+    else:
+        print("⚠️ Gemini client not available")
+    
     # Try Groq as fallback
-    result = generate_with_groq(user_input, num_slides)
-    if result:
-        return result
-
+    if groq_client:
+        print("\n🟢 Attempting Groq...")
+        result = generate_with_groq(user_input, num_slides)
+        if result:
+            print("✅ Groq succeeded!")
+            print(f"📊 Generated {len(result.get('slides', []))} slides")
+            return result
+        else:
+            print("❌ Groq failed")
+    else:
+        print("⚠️ Groq client not available")
+    
     # Ultimate fallback
-    print("⚠️ All AIs failed, using fallback content")
-    return generate_fallback_content(user_input, num_slides)
+    print("\n⚠️ All AIs failed, using fallback content")
+    fallback = generate_fallback_content(user_input, num_slides)
+    print(f"✅ Fallback created with {len(fallback.get('slides', []))} slides")
+    
+    return fallback
+
+
+# ─── TEST FUNCTION ───────────────────────────────────────────────
+if __name__ == "__main__":
+    # Test the AI engine
+    print("\n🧪 TESTING AI ENGINE...")
+    result = generate_slide_content("Artificial Intelligence", 5)
+    
+    if result:
+        print(f"\n✅ SUCCESS!")
+        print(f"Title: {result.get('title')}")
+        print(f"Slides: {len(result.get('slides', []))}")
+        
+        # Print first slide preview
+        if result.get('slides'):
+            first = result['slides'][0]
+            print(f"\n📄 First slide:")
+            print(f"  Heading: {first.get('heading')}")
+            print(f"  Explanation: {first.get('explanation', '')[:100]}...")
+            print(f"  Bullets: {len(first.get('bullets', []))}")
+    else:
+        print("\n❌ FAILED to generate content")
