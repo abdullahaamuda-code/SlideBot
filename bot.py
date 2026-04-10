@@ -4,6 +4,8 @@ import asyncio
 import logging
 import requests
 import trafilatura
+from threading import Thread
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -552,9 +554,20 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Now type /paid so we know you're ready — we'll activate you within the hour. 🙏"
     )
 
+class PingHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"SlideBot is alive!")
+    def log_message(self, format, *args):
+        pass
 
+def run_ping_server():
+    server = HTTPServer(("0.0.0.0", 8080), PingHandler)
+    server.serve_forever()
 # ─── MAIN ─────────────────────────────────────────────────────────
 def main():
+    Thread(target=run_ping_server, daemon=True).start()
     app = ApplicationBuilder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
