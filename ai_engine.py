@@ -1,8 +1,9 @@
 import os
+import json
+import re
 from dotenv import load_dotenv
 from google import genai
 from groq import Groq
-import json
 
 load_dotenv()
 
@@ -23,8 +24,7 @@ Respond ONLY with a JSON object exactly like this, nothing else, no markdown:
         {{
             "slide_number": 1,
             "heading": "Slide Title Here",
-            "image_keyword": "relevant single word for unsplash image",
-            "intro_description": "1 short sentence summarizing the presentation focus.",
+            "image_keyword": "relevant single word for image",
             "bullets": [
                 "First key point",
                 "Second key point",
@@ -37,71 +37,73 @@ Respond ONLY with a JSON object exactly like this, nothing else, no markdown:
 
 Rules:
 - First slide is always the intro/title slide
-- Intro slide MUST include: a very short 1-sentence description of the whole presentation in "intro_description"
-- Last slide is always a real summary: concise recap of the most important ideas, not generic advice
-- Last slide MUST summarize the key ideas from the whole presentation in the bullets
+- Last slide is always a real summary: concise recap of the most important ideas
 - Each slide MUST have between 4 and 5 bullet points, never fewer than 4
 - Bullet points must be short and punchy
-- image_keyword must be a single simple English noun relevant to the slide topic (e.g. "teamwork", "growth", "innovation")
+- image_keyword must be a single simple English noun relevant to the slide topic
 - Make it professional and engaging
 - Do not include any explanations, markdown, comments, or extra text outside the JSON object
 """
 
 def clean_json(text: str) -> str:
+    """Clean JSON response from AI"""
+    if not text:
+        return ""
+    
     text = text.strip()
+    
+    # Remove markdown code blocks
     if "```json" in text:
-        text = text.split("```json").split("```").strip()[1]
-    elif "```" in text:
-        text = text.split("```")[11].split("```")[0].strip()
+        parts = text.split("```json")
+        if len(parts) > 1:
+            text = parts[1]
+    if "```" in text:
+        text = text.split("```")[0]
+    
+    text = text.strip()
+    
+    # Find first { and last }
     start = text.find("{")
-    end = text.rfind("}") + 1
-    if start != -1 and end != 0:
-        text = text[start:end]
+    end = text.rfind("}")
+    
+    if start != -1 and end != -1 and end > start:
+        text = text[start:end+1]
+    
     return text
 
 def enforce_summary_and_bullets(struct: dict) -> dict:
-    """
-    Safety net:
-    - Ensure last slide is a proper summary (not 'review the main concepts...')
-    - Ensure 4–5 bullets per slide by trimming or padding if necessary
-    """
+    """Ensure each slide has 4-5 bullets and last slide is a proper summary"""
+    if not struct or "slides" not in struct:
+        return struct
+    
     slides = struct.get("slides", [])
-
-    for i, slide in enumerate(slides):
-        bullets = slide.get("bullets", []) or []
-
+    
+    for slide in slides:
+        bullets = slide.get("bullets", [])
+        
         # Ensure between 4 and 5 bullets
         if len(bullets) < 4:
-            last_text = bullets[-1] if bullets else "Key idea"
+            # Add placeholder bullets if needed
             while len(bullets) < 4:
-                bullets.append(last_text)
+                bullets.append("Important key point to remember")
         elif len(bullets) > 5:
             bullets = bullets[:5]
+        
         slide["bullets"] = bullets
-
+    
+    # Ensure last slide is a proper summary
     if slides:
         last_slide = slides[-1]
-        # If last slide is too generic, overwrite bullets with a clearer summary
-        generic_phrases = [
-            "review the main concepts",
-            "review key ideas",
-            "reflect on the concepts discussed",
-            "you have learned",
-        ]
-        joined = " ".join(last_slide.get("bullets", [])).lower()
-        if any(p in joined for p in generic_phrases):
-            last_slide["bullets"] = [
-                "Recap the core topic and its importance",
-                "Highlight the main ideas covered in the slides",
-                "Emphasize the most practical takeaways",
-                "Encourage applying these concepts in real situations",
-            ]
-
+        # Make sure last slide has summary-like heading
+        if "conclusion" not in last_slide.get("heading", "").lower() and "summary" not in last_slide.get("heading", "").lower():
+            last_slide["heading"] = "Conclusion & Key Takeaways"
+    
     struct["slides"] = slides
     return struct
 
 def generate_with_gemini(user_input: str, num_slides: int):
     try:
+        print(f"📡 Gemini: Generating for '{user_input[:50]}...'")
         prompt = PROMPT_TEMPLATE.format(
             user_input=user_input,
             num_slides=num_slides
@@ -111,14 +113,19 @@ def generate_with_gemini(user_input: str, num_slides: int):
             contents=prompt
         )
         text = clean_json(response.text)
+        if not text:
+            print("❌ Gemini: Empty response after cleaning")
+            return None
         data = json.loads(text)
+        print("✅ Gemini: Success")
         return enforce_summary_and_bullets(data)
     except Exception as e:
-        print(f"Gemini failed: {e}")
+        print(f"❌ Gemini failed: {e}")
         return None
 
 def generate_with_groq(user_input: str, num_slides: int):
     try:
+        print(f"📡 Groq: Generating for '{user_input[:50]}...'")
         prompt = PROMPT_TEMPLATE.format(
             user_input=user_input,
             num_slides=num_slides
@@ -126,33 +133,86 @@ def generate_with_groq(user_input: str, num_slides: int):
         response = groq_client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.7
+            temperature=0.7,
+            max_tokens=4000
         )
         text = clean_json(response.choices[0].message.content)
+        if not text:
+            print("❌ Groq: Empty response after cleaning")
+            return None
         data = json.loads(text)
+        print("✅ Groq: Success")
         return enforce_summary_and_bullets(data)
     except Exception as e:
-        print(f"Groq failed: {e}")
+        print(f"❌ Groq failed: {e}")
         return None
 
 def generate_slide_content(user_input: str, num_slides: int = 8):
-    print("Trying Gemini...")
+    """Main function - clears old context, generates fresh content"""
+    print(f"\n🎨 Generating {num_slides} slides for: {user_input[:100]}...")
+    
+    # Try Gemini first
     result = generate_with_gemini(user_input, num_slides)
     if result:
-        print("Gemini succeeded ✅")
         return result
-
-    print("Trying Groq...")
+    
+    # Try Groq as fallback
     result = generate_with_groq(user_input, num_slides)
     if result:
-        print("Groq succeeded ✅")
         return result
+    
+    # Ultimate fallback
+    print("⚠️ All AIs failed, using fallback content")
+    return generate_fallback_content(user_input, num_slides)
 
-    print("All AIs failed ❌")
-    return None
+def generate_from_text(raw_text: str, num_slides: int = 8):
+    """Generate from extracted text"""
+    # Take first 200 chars as topic for generation
+    topic = raw_text[:200] if len(raw_text) > 200 else raw_text
+    return generate_slide_content(topic, num_slides)
 
-def generate_from_text(user_input: str, num_slides: int = 8):
-    """
-    Convenience wrapper so other parts of the app can just call this with raw text.
-    """
-    return generate_slide_content(user_input=user_input, num_slides=num_slides)
+def generate_fallback_content(topic: str, num_slides: int) -> dict:
+    """Fallback content if all AI calls fail"""
+    slides = []
+    for i in range(num_slides):
+        if i == 0:
+            slides.append({
+                "slide_number": 1,
+                "heading": f"Introduction to {topic[:50]}",
+                "image_keyword": "introduction",
+                "bullets": [
+                    f"What you need to know about {topic[:30]}",
+                    "Key challenges and opportunities",
+                    "Why this matters today",
+                    "What you'll learn from this presentation"
+                ]
+            })
+        elif i == num_slides - 1:
+            slides.append({
+                "slide_number": num_slides,
+                "heading": "Conclusion & Key Takeaways",
+                "image_keyword": "success",
+                "bullets": [
+                    "Review of the main concepts discussed",
+                    "Key insights to remember",
+                    "Actionable steps to take",
+                    "Resources for further learning"
+                ]
+            })
+        else:
+            slides.append({
+                "slide_number": i + 1,
+                "heading": f"Key Insight {i}",
+                "image_keyword": "business",
+                "bullets": [
+                    "Important factor to consider",
+                    "Strategy that drives results",
+                    "Common pitfall to avoid",
+                    "Best practice to follow"
+                ]
+            })
+    
+    return {
+        "title": f"Understanding {topic[:50]}",
+        "slides": slides
+    }
