@@ -212,7 +212,7 @@ async def new_presentation_callback(update: Update, context: ContextTypes.DEFAUL
 # Update your help callback to NOT show a start button:
 
 async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle help button callback"""
+    """Handle help button callback - shows help text with Back button"""
     query = update.callback_query
     await query.answer()
     uid = str(query.from_user.id)
@@ -232,19 +232,21 @@ async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
     
     if premium:
-        help_text += "💎 **Premium:** Unlimited access • 30 slides • All themes"
+        help_text += "💎 **Your plan: Premium**\n• Unlimited decks\n• Up to 30 slides\n• All themes\n• Priority support"
     else:
-        help_text += "📊 **Free:** 2 decks/day • 8 slides • Basic themes\n\nType /upgrade for unlimited! 💎"
+        help_text += "📊 **Your plan: Free**\n• 2 decks/day\n• Up to 8 slides\n• Classic & Dark themes\n\nType /upgrade for unlimited! 💎"
     
-    # Only show back button, NOT another start button
-    keyboard = [[InlineKeyboardButton("◀️ Back", callback_data="back_to_start")]]
+    # ADD BACK BUTTON HERE
+    keyboard = [
+        [InlineKeyboardButton("🎨 Change Theme", callback_data="change_theme")],
+        [InlineKeyboardButton("◀️ Back to Menu", callback_data="back_to_start")]
+    ]
     
     await query.edit_message_text(
         help_text, 
-        reply_markup=InlineKeyboardMarkup(keyboard),
+        reply_markup=InlineKeyboardMarkup(keyboard), 
         parse_mode="Markdown"
     )
-
 
 async def back_to_start_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle back button - returns to main menu"""
@@ -269,8 +271,6 @@ async def back_to_start_callback(update: Update, context: ContextTypes.DEFAULT_T
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
-
-
 async def change_theme_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle change theme button callback"""
     query = update.callback_query
@@ -300,7 +300,7 @@ async def show_status_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     plan = "💎 Premium" if premium else "📊 Free"
     remaining = "Unlimited" if premium else max(0, 2 - used_today)
     
-    keyboard = [[InlineKeyboardButton("◀️ Back", callback_data="back_to_start")]]
+    keyboard = [[InlineKeyboardButton("◀️ Back to Menu", callback_data="back_to_start")]]
     
     await query.edit_message_text(
         f"**Your SlideBot Status**\n\n"
@@ -313,26 +313,29 @@ async def show_status_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         parse_mode="Markdown"
     )
 
-
 async def show_upgrade_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Handle upgrade button callback"""
     query = update.callback_query
     await query.answer()
     
-    keyboard = [[InlineKeyboardButton("◀️ Back", callback_data="back_to_start")]]
+    keyboard = [[InlineKeyboardButton("◀️ Back to Menu", callback_data="back_to_start")]]
     
     await query.edit_message_text(
         "💎 **SlideBot Premium — ₦500/month**\n\n"
         "**What you unlock:**\n"
         "✅ Unlimited presentations\n"
-        "✅ Up to 30 slides\n"
+        "✅ Up to 30 slides per deck\n"
         "✅ All 6 premium themes\n"
-        "✅ Unlimited URL/file uploads\n"
+        "✅ Unlimited URL → Slides\n"
+        "✅ Unlimited PDF/Word → Slides\n"
+        "✅ No watermarks\n"
         "✅ Priority support\n\n"
-        "**Pay:** MONIEPOINT MFB\n"
-        "Account: 8169936326\n"
-        "Name: Abdullah Abdulgafar-Amuda\n\n"
-        "Send receipt then /paid",
+        "**How to pay:**\n"
+        "Bank: MONIEPOINT MFB\n"
+        "Name: Abdullah Abdulgafar-Amuda\n"
+        "Account: 8169936326\n\n"
+        "After payment, send your receipt screenshot here,\n"
+        "then type /paid 🙏",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
@@ -869,6 +872,7 @@ async def main():
     app.add_handler(CallbackQueryHandler(theme_callback, pattern="^theme_"))
     app.add_handler(CallbackQueryHandler(slide_count_callback, pattern="^slides_"))
     app.add_handler(CallbackQueryHandler(cancel_callback, pattern="^cancel$"))
+    
 
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
