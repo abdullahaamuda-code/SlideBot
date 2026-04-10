@@ -138,7 +138,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     keyboard = [
         [InlineKeyboardButton("📖 How to use", callback_data="show_help")],
-        [InlineKeyboardButton("🎨 Change Theme", callback_data="change_theme")],
         [InlineKeyboardButton("💎 Upgrade to Premium", callback_data="show_upgrade")],
         [InlineKeyboardButton("📊 My Status", callback_data="show_status")]
     ]
