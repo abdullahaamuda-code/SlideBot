@@ -19,7 +19,8 @@ from database import (
     is_premium, activate_premium, revoke_premium,
     get_premium_users, get_total_stats,
     can_use_url, can_use_file,
-    increment_url_usage, increment_file_usage
+    increment_url_usage, increment_file_usage,
+    get_user_theme, save_user_theme, get_today_usage  # ADD THIS LINE
 )
 
 load_dotenv()
@@ -145,10 +146,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if saved_theme:
         context.user_data["theme"] = saved_theme
     
+    # ADDED: Status button in the keyboard
     keyboard = [
         [InlineKeyboardButton("📖 How to use", callback_data="show_help")],
         [InlineKeyboardButton("🎨 Change Theme", callback_data="change_theme")],
-        [InlineKeyboardButton("💎 Upgrade to Premium", callback_data="show_upgrade")]
+        [InlineKeyboardButton("💎 Upgrade to Premium", callback_data="show_upgrade")],
+        [InlineKeyboardButton("📊 My Status", callback_data="show_status")]  # NEW
     ]
     await update.message.reply_text(
         f"✨ **Hey {user.first_name}!** ✨\n\n"
@@ -168,19 +171,23 @@ async def change_theme_callback(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     await query.answer()
     uid = str(query.from_user.id)
+    from database import get_user_theme
+    current = get_user_theme(uid)
+    
+    # Get the theme keyboard
+    keyboard = get_theme_keyboard(uid, current)
+    
+    # ADDED: Convert to list and add Back button at the bottom
+    keyboard_list = keyboard.inline_keyboard
+    back_button = [[InlineKeyboardButton("◀️ Back to Menu", callback_data="back_to_start")]]
+    new_keyboard = InlineKeyboardMarkup(keyboard_list + back_button)
+    
     await query.edit_message_text(
-        "🎨 **Choose your slide style**\n\n"
-        "• **Classic** — Professional blue tones\n"
-        "• **Dark** — Bold modern look\n"
-        "• **Corporate** — Business formal\n"
-        "• **Startup** — Vibrant & energetic\n"
-        "• **Academic** — Clean scholarly\n"
-        "• **Minimal** — Simple elegant\n\n"
+        f"🎨 **Choose your slide style**\n\nCurrent: **{current.title()}**\n\n"
         f"{'🔓 All themes unlocked!' if is_premium(uid) else '🔒 Premium themes require upgrade'}",
-        reply_markup=get_theme_keyboard(uid, context.user_data.get("theme")),
+        reply_markup=new_keyboard,
         parse_mode="Markdown"
     )
-
 async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -205,12 +212,17 @@ async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         help_text += "📊 **Your plan: Free**\n• 2 decks/day\n• Up to 8 slides\n• Classic & Dark themes\n\nType /upgrade for unlimited! 💎"
     
-    keyboard = [[InlineKeyboardButton("🎨 Change Theme", callback_data="change_theme")]]
+    # ADDED: Back button instead of Change Theme button
+    keyboard = [[InlineKeyboardButton("◀️ Back to Menu", callback_data="back_to_start")]]
     await query.edit_message_text(help_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 async def show_upgrade_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    
+    # ADDED: Back button
+    keyboard = [[InlineKeyboardButton("◀️ Back to Menu", callback_data="back_to_start")]]
+    
     await query.edit_message_text(
         "💎 **SlideBot Premium — ₦500/month**\n\n"
         "**What you unlock:**\n"
@@ -227,9 +239,64 @@ async def show_upgrade_callback(update: Update, context: ContextTypes.DEFAULT_TY
         "Account: 8169936326\n\n"
         "After payment, send your receipt screenshot here,\n"
         "then type /paid 🙏",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+async def back_to_start_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle back button - returns to main menu"""
+    query = update.callback_query
+    await query.answer()
+    
+    uid = str(query.from_user.id)
+    from database import get_user_theme
+    saved_theme = get_user_theme(uid)
+    
+    # Clear any pending data
+    context.user_data.clear()
+    context.user_data["theme"] = saved_theme
+    
+    # Main welcome keyboard - same as /start
+    keyboard = [
+        [InlineKeyboardButton("📖 How to use", callback_data="show_help")],
+        [InlineKeyboardButton("🎨 Change Theme", callback_data="change_theme")],
+        [InlineKeyboardButton("💎 Upgrade to Premium", callback_data="show_upgrade")],
+        [InlineKeyboardButton("📊 My Status", callback_data="show_status")]
+    ]
+    
+    await query.edit_message_text(
+        f"✨ **Welcome back!** ✨\n\n"
+        "Ready to create another presentation?\n\n"
+        "📝 **Just type any topic** and I'll get started!\n\n"
+        f"🎨 **Current theme:** {saved_theme.title()}",
+        reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
 
+async def show_status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle status button callback"""
+    query = update.callback_query
+    await query.answer()
+    uid = str(query.from_user.id)
+    premium = is_premium(uid)
+    from database import get_today_usage, get_user_theme
+    used_today = get_today_usage(uid)
+    theme = get_user_theme(uid)
+    
+    plan = "💎 Premium" if premium else "📊 Free"
+    remaining = "Unlimited" if premium else max(0, 2 - used_today)
+    
+    keyboard = [[InlineKeyboardButton("◀️ Back to Menu", callback_data="back_to_start")]]
+    
+    await query.edit_message_text(
+        f"**Your SlideBot Status**\n\n"
+        f"📌 **Plan:** {plan}\n"
+        f"🎨 **Theme:** {theme.title()}\n"
+        f"✅ **Used today:** {used_today if not premium else '∞'}\n"
+        f"🎯 **Remaining:** {remaining}\n\n"
+        f"Type /upgrade to go Premium 💎",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     uid = str(user.id)
@@ -756,6 +823,8 @@ async def main():
     app.add_handler(CallbackQueryHandler(help_callback, pattern="^show_help$"))
     app.add_handler(CallbackQueryHandler(change_theme_callback, pattern="^change_theme$"))
     app.add_handler(CallbackQueryHandler(show_upgrade_callback, pattern="^show_upgrade$"))
+    app.add_handler(CallbackQueryHandler(back_to_start_callback, pattern="^back_to_start$"))  # ADD THIS
+    app.add_handler(CallbackQueryHandler(show_status_callback, pattern="^show_status$"))       # ADD THIS
 
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
