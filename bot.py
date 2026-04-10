@@ -104,6 +104,7 @@ async def ask_for_slide_count(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
 
 async def slide_count_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle slide count selection callback"""
     query = update.callback_query
     await query.answer()
     num_slides = int(query.data.replace("slides_", ""))
@@ -121,36 +122,28 @@ async def slide_count_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         )
     else:
         current_theme = get_user_theme(uid)
+        keyboard = get_theme_keyboard(uid, current_theme)
+        # Add Back button
+        back_button = [[InlineKeyboardButton("◀️ Cancel", callback_data="cancel")]]
+        keyboard = InlineKeyboardMarkup(keyboard.inline_keyboard + back_button)
+        
         await query.edit_message_text(
             "🎨 **Great! Now pick your slide style**\n\nEach theme has unique colors and layouts:",
-            reply_markup=get_theme_keyboard(uid, current_theme),
+            reply_markup=keyboard,
             parse_mode="Markdown"
         )
 
+
 async def cancel_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle cancel button - returns to start menu"""
     query = update.callback_query
     await query.answer()
-    context.user_data.clear()
-    await query.edit_message_text(
-        "❌ **Cancelled**\n\nSend me a new topic anytime to create your presentation!",
-        parse_mode="Markdown"
-    )
-
-
-# ─── COMMANDS ─────────────────────────────────────────────────────
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle /start command"""
-    user = update.effective_user
-    uid = str(user.id)
     
-    # Create/get user
-    get_or_create_user(uid, str(user.username or user.first_name))
-    
-    # Load saved theme (don't clear context yet!)
+    uid = str(query.from_user.id)
     saved_theme = get_user_theme(uid)
+    context.user_data.clear()
     context.user_data["theme"] = saved_theme
     
-    # Main welcome keyboard
     keyboard = [
         [InlineKeyboardButton("📖 How to use", callback_data="show_help")],
         [InlineKeyboardButton("🎨 Change Theme", callback_data="change_theme")],
@@ -158,21 +151,49 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📊 My Status", callback_data="show_status")]
     ]
     
-    await update.message.reply_text(
-        f"✨ **Hey {user.first_name}!** ✨\n\n"
-        "Welcome to **SlideBot** — your AI presentation designer.\n\n"
-        "**Just type any topic** and I'll create a professional PowerPoint in seconds!\n\n"
-        "📝 **Try:**\n"
-        "• *Climate change in Africa*\n"
-        "• *My business pitch*\n"
-        "• *Digital marketing trends*\n\n"
-        "📎 Or send me a **URL, PDF, or Word doc** to convert!\n\n"
+    await query.edit_message_text(
+        f"✨ **Welcome back!** ✨\n\n"
+        "Ready to create another presentation?\n\n"
+        "📝 **Just type any topic** and I'll get started!\n\n"
         f"🎨 **Current theme:** {saved_theme.title()}",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
 
+
+# ─── COMMANDS ─────────────────────────────────────────────────────
+async def back_to_start_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle back button - returns to main menu (same as /start)"""
+    query = update.callback_query
+    await query.answer()
+    
+    uid = str(query.from_user.id)
+    saved_theme = get_user_theme(uid)
+    
+    # Clear any pending data
+    context.user_data.clear()
+    context.user_data["theme"] = saved_theme
+    
+    # Main welcome keyboard - SAME as /start command
+    keyboard = [
+        [InlineKeyboardButton("📖 How to use", callback_data="show_help")],
+        [InlineKeyboardButton("🎨 Change Theme", callback_data="change_theme")],
+        [InlineKeyboardButton("💎 Upgrade to Premium", callback_data="show_upgrade")],
+        [InlineKeyboardButton("📊 My Status", callback_data="show_status")]
+    ]
+    
+    await query.edit_message_text(
+        f"✨ **Welcome back!** ✨\n\n"
+        "Ready to create another presentation?\n\n"
+        "📝 **Just type any topic** and I'll get started!\n\n"
+        f"🎨 **Current theme:** {saved_theme.title()}",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
+
+
 async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle help button callback - shows help text with Back button"""
     query = update.callback_query
     await query.answer()
     uid = str(query.from_user.id)
@@ -196,12 +217,16 @@ async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         help_text += "📊 **Your plan: Free**\n• 2 decks/day\n• Up to 8 slides\n• Classic & Dark themes\n\nType /upgrade for unlimited! 💎"
     
+    # Only show Back button, no other buttons
     keyboard = [
-        [InlineKeyboardButton("🎨 Change Theme", callback_data="change_theme")],
         [InlineKeyboardButton("◀️ Back to Menu", callback_data="back_to_start")]
     ]
     
-    await query.edit_message_text(help_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    await query.edit_message_text(
+        help_text, 
+        reply_markup=InlineKeyboardMarkup(keyboard), 
+        parse_mode="Markdown"
+    )
 
 async def back_to_start_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -227,19 +252,26 @@ async def back_to_start_callback(update: Update, context: ContextTypes.DEFAULT_T
     )
 
 async def change_theme_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle change theme button callback"""
     query = update.callback_query
     await query.answer()
     uid = str(query.from_user.id)
     current = get_user_theme(uid)
     
+    keyboard = get_theme_keyboard(uid, current)
+    # Add Back button at the bottom
+    back_button = [[InlineKeyboardButton("◀️ Back to Menu", callback_data="back_to_start")]]
+    keyboard = InlineKeyboardMarkup(keyboard.inline_keyboard + back_button)
+    
     await query.edit_message_text(
         f"🎨 **Choose your slide style**\n\nCurrent: **{current.title()}**\n\n"
         f"{'🔓 All themes unlocked!' if is_premium(uid) else '🔒 Premium themes require upgrade'}",
-        reply_markup=get_theme_keyboard(uid, current),
+        reply_markup=keyboard,
         parse_mode="Markdown"
     )
 
 async def show_status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle status button callback"""
     query = update.callback_query
     await query.answer()
     uid = str(query.from_user.id)
@@ -264,6 +296,7 @@ async def show_status_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     )
 
 async def show_upgrade_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle upgrade button callback"""
     query = update.callback_query
     await query.answer()
     
@@ -288,7 +321,6 @@ async def show_upgrade_callback(update: Update, context: ContextTypes.DEFAULT_TY
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
-
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     uid = str(user.id)
@@ -461,16 +493,19 @@ async def premiumlist_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 # ─── THEME CALLBACK ───────────────────────────────────────────────
 async def theme_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handle theme selection callback"""
     query = update.callback_query
     await query.answer()
     uid = str(query.from_user.id)
     theme_name = query.data.replace("theme_", "")
     
     if theme_name in PREMIUM_THEMES and not is_premium(uid):
+        keyboard = [[InlineKeyboardButton("◀️ Back to Menu", callback_data="back_to_start")]]
         await query.edit_message_text(
             "🔒 **Premium Theme Locked**\n\n"
             f"*{theme_name.title()}* is for Premium users only.\n\n"
             "💎 Type /upgrade to unlock all themes!",
+            reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown"
         )
         return
@@ -479,18 +514,15 @@ async def theme_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     save_user_theme(uid, theme_name)
     context.user_data["theme"] = theme_name
     
-    if "pending_topic" in context.user_data and "pending_slides" in context.user_data:
-        topic = context.user_data.pop("pending_topic")
-        num_slides = context.user_data.pop("pending_slides")
-        raw_text = context.user_data.pop("pending_raw_text", None)
-        await query.edit_message_text(f"✅ Theme: **{theme_name.title()}** applied!\n\n🎯 Generating your {num_slides}-slide deck...", parse_mode="Markdown")
-        await start_generation(query, context, topic, num_slides, theme_name, raw_text=raw_text)
-    else:
-        await query.edit_message_text(
-            f"✅ **Theme saved: {theme_name.title()}**\n\n"
-            "📝 **Now send me your topic** or paste a URL to begin!",
-            parse_mode="Markdown"
-        )
+    # Show success with Back button
+    keyboard = [[InlineKeyboardButton("◀️ Back to Menu", callback_data="back_to_start")]]
+    
+    await query.edit_message_text(
+        f"✅ **Theme saved: {theme_name.title()}**\n\n"
+        "📝 **Now send me your topic** or paste a URL to begin!",
+        reply_markup=InlineKeyboardMarkup(keyboard),
+        parse_mode="Markdown"
+    )
 
 
 # ─── GENERATION FUNCTION ──────────────────────────────────────────
