@@ -1,14 +1,13 @@
 import os
 import uuid
-import random
 import requests
 from io import BytesIO
 
 from dotenv import load_dotenv
 from pptx import Presentation
-from pptx.util import Inches, Pt, Emu
+from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
-from pptx.enum.text import PP_ALIGN, PP_PARAGRAPH_ALIGNMENT
+from pptx.enum.text import PP_ALIGN
 from pptx.enum.shapes import MSO_SHAPE
 
 from PIL import Image, ImageDraw
@@ -94,40 +93,45 @@ SLIDE_W = Inches(13.33)
 SLIDE_H = Inches(7.5)
 
 
-# ─── UNSPLASH IMAGE FETCH ─────────────────────────────────────────
+# ─── UNSPLASH IMAGE FETCH (ROBUST) ────────────────────────────────
 def fetch_unsplash_image(keyword: str):
+    """Fetch a random Unsplash image as BytesIO, with good logging."""
     try:
         if not UNSPLASH_KEY:
-            print("❌ No Unsplash key found")
+            print("❌ No Unsplash key found (UNSPLASH_ACCESS_KEY missing)")
             return None
 
+        query = keyword or "business"
         url = "https://api.unsplash.com/photos/random"
         params = {
-            "query": keyword,
+            "query": query,
             "orientation": "landscape",
             "content_filter": "high",
             "client_id": UNSPLASH_KEY,
         }
-        print(f"🖼 Fetching Unsplash image for: {keyword}")
-        response = requests.get(url, params=params, timeout=15)
-        print(f"🖼 Unsplash status: {response.status_code}")
+        print(f"🖼 Fetching Unsplash image for: {query}")
+        resp = requests.get(url, params=params, timeout=15)
+        print(f"🖼 Unsplash status: {resp.status_code}")
 
-        if response.status_code == 200:
-            data = response.json()
+        if resp.status_code == 200:
+            data = resp.json()
             img_url = data["urls"]["regular"]
-            print(f"🖼 Got image URL: {img_url[:60]}")
-            img_response = requests.get(img_url, timeout=15)
-            print(f"🖼 Image download status: {img_response.status_code}")
-            if img_response.status_code == 200:
+            print(f"🖼 Got image URL: {img_url[:80]}...")
+            img_resp = requests.get(img_url, timeout=15)
+            print(f"🖼 Image download status: {img_resp.status_code}")
+            if img_resp.status_code == 200:
                 print("✅ Image fetched successfully")
-                return BytesIO(img_response.content)
-
-        elif response.status_code == 403:
-            print("❌ Unsplash key invalid or rate limited")
-        elif response.status_code == 401:
-            print("❌ Unsplash unauthorized — check your key")
+                bio = BytesIO(img_resp.content)
+                bio.seek(0)
+                return bio
+            else:
+                print(f"❌ Failed to download image bytes: {img_resp.text[:200]}")
+        elif resp.status_code == 401:
+            print("❌ Unsplash 401 Unauthorized — invalid or missing access key")
+        elif resp.status_code == 403:
+            print("❌ Unsplash 403 Forbidden — key invalid/not approved/rate-limited")
         else:
-            print(f"❌ Unsplash error: {response.text[:200]}")
+            print(f"❌ Unsplash error {resp.status_code}: {resp.text[:200]}")
 
     except requests.Timeout:
         print(f"❌ Unsplash timeout for '{keyword}'")
@@ -151,10 +155,10 @@ def add_rect(slide, left, top, width, height, color, radius=0, transparency=0):
     shape = slide.shapes.add_shape(1, left, top, width, height)
     shape.fill.solid()
     shape.fill.fore_color.rgb = color
-    
+
     if transparency > 0:
         shape.fill.transparency = transparency
-    
+
     shape.line.fill.background()
 
     if radius > 0:
@@ -213,16 +217,21 @@ def add_text(
 
 
 def add_image_to_slide(slide, image_stream, left, top, width, height):
+    """Add image from BytesIO to slide; ensures pointer is at start."""
     try:
+        if hasattr(image_stream, "seek"):
+            image_stream.seek(0)
         slide.shapes.add_picture(image_stream, left, top, width, height)
+        print("✅ Image inserted into slide")
         return True
     except Exception as e:
-        print(f"Image insert failed: {e}")
+        print(f"❌ Image insert failed: {e}")
         return False
 
 
 def make_rounded_image(image_stream, radius=60):
     try:
+        image_stream.seek(0)
         img = Image.open(image_stream).convert("RGBA")
         w, h = img.size
 
@@ -255,7 +264,6 @@ def build_title_slide(prs, title, theme, keyword="abstract"):
         overlay = add_rect(slide, 0, 0, SLIDE_W, SLIDE_H, RGBColor(0x00, 0x00, 0x00))
         overlay.fill.transparency = 0.35
 
-    # Simple elegant overlay
     add_rect(slide, 0, Inches(5.2), SLIDE_W, Inches(2.3), theme["accent"], transparency=0.85)
 
     add_text(
@@ -285,20 +293,18 @@ def build_title_slide(prs, title, theme, keyword="abstract"):
     )
 
 
-# ─── LAYOUT 1 — Hero Image + Text Overlay (full image, minimal text) ──
+# ─── LAYOUT 1 — Hero Image + Text Overlay ─────────────────────────
 def build_layout_1(prs, heading, bullets, theme, keyword):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    
+
     img = fetch_unsplash_image(keyword)
     if img:
         add_image_to_slide(slide, img, 0, 0, SLIDE_W, SLIDE_H)
-    
-    # Dark overlay for readability
+
     add_rect(slide, 0, 0, SLIDE_W, SLIDE_H, RGBColor(0x00, 0x00, 0x00), transparency=0.5)
-    
-    # Bottom accent bar
+
     add_rect(slide, 0, Inches(7.2), SLIDE_W, Inches(0.3), theme["accent"])
-    
+
     add_text(
         slide,
         heading,
@@ -311,7 +317,7 @@ def build_layout_1(prs, heading, bullets, theme, keyword):
         bold=True,
         align=PP_ALIGN.CENTER,
     )
-    
+
     top = Inches(3.2)
     for bullet in bullets[:4]:
         add_text(
@@ -333,15 +339,12 @@ def build_layout_1(prs, heading, bullets, theme, keyword):
 def build_layout_2(prs, heading, bullets, theme, keyword):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_bg(slide, theme["bg"])
-    
-    # Right side full image
+
     img = fetch_unsplash_image(keyword)
     if img:
         add_image_to_slide(slide, img, Inches(6.5), 0, Inches(6.83), SLIDE_H)
-        # Subtle overlay on image
         add_rect(slide, Inches(6.5), 0, Inches(6.83), SLIDE_H, theme["accent"], transparency=0.85)
-    
-    # Left content
+
     add_text(
         slide,
         heading,
@@ -354,9 +357,9 @@ def build_layout_2(prs, heading, bullets, theme, keyword):
         bold=True,
         align=PP_ALIGN.LEFT,
     )
-    
+
     add_rect(slide, Inches(0.6), Inches(1.8), Inches(2.5), Inches(0.05), theme["accent"], radius=30000)
-    
+
     top = Inches(2.2)
     for bullet in bullets[:5]:
         add_circle(slide, Inches(0.6), top + Inches(0.08), Inches(0.08), Inches(0.08), theme["accent2"])
@@ -375,14 +378,13 @@ def build_layout_2(prs, heading, bullets, theme, keyword):
         top += Inches(0.8)
 
 
-# ─── LAYOUT 3 — Card Grid (modern, no heavy borders) ──────────────
+# ─── LAYOUT 3 — Card Grid with small image ────────────────────────
 def build_layout_3(prs, heading, bullets, theme, keyword):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_bg(slide, theme["bg"])
-    
-    # Subtle background circle
+
     add_circle(slide, Inches(11.0), Inches(0.5), Inches(3.5), Inches(3.5), theme["light_accent"], transparency=0.8)
-    
+
     add_text(
         slide,
         heading,
@@ -395,10 +397,9 @@ def build_layout_3(prs, heading, bullets, theme, keyword):
         bold=True,
         align=PP_ALIGN.LEFT,
     )
-    
+
     add_rect(slide, Inches(0.6), Inches(1.3), Inches(2.2), Inches(0.04), theme["accent"], radius=30000)
-    
-    # Card bullets
+
     top = Inches(1.7)
     for i, bullet in enumerate(bullets[:5]):
         card_color = [theme["card_bg"], theme["light_accent"]][i % 2]
@@ -416,26 +417,23 @@ def build_layout_3(prs, heading, bullets, theme, keyword):
             wrap=True,
         )
         top += Inches(0.88)
-    
-    # Small image at bottom right
+
     img = fetch_unsplash_image(keyword)
     if img:
         rounded = make_rounded_image(img, radius=30)
         add_image_to_slide(slide, rounded, Inches(10.5), Inches(5.5), Inches(2.5), Inches(1.8))
 
 
-# ─── LAYOUT 4 — Split with Full Image (alternating) ───────────────
+# ─── LAYOUT 4 — Split with Left Full Image ────────────────────────
 def build_layout_4(prs, heading, bullets, theme, keyword):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_bg(slide, theme["bg"])
-    
-    # Left full image
+
     img = fetch_unsplash_image(keyword)
     if img:
         add_image_to_slide(slide, img, 0, 0, Inches(6.5), SLIDE_H)
         add_rect(slide, 0, 0, Inches(6.5), SLIDE_H, theme["accent"], transparency=0.85)
-    
-    # Right content
+
     add_text(
         slide,
         heading,
@@ -448,9 +446,9 @@ def build_layout_4(prs, heading, bullets, theme, keyword):
         bold=True,
         align=PP_ALIGN.LEFT,
     )
-    
+
     add_rect(slide, Inches(6.8), Inches(2.1), Inches(2.2), Inches(0.04), theme["accent"], radius=30000)
-    
+
     top = Inches(2.5)
     for bullet in bullets[:5]:
         add_text(
@@ -468,12 +466,11 @@ def build_layout_4(prs, heading, bullets, theme, keyword):
         top += Inches(0.8)
 
 
-# ─── LAYOUT 5 — Full Bleed with Quote Style ───────────────────────
+# ─── LAYOUT 5 — Full Accent Quote + Small Image ───────────────────
 def build_layout_5(prs, heading, bullets, theme, keyword):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_bg(slide, theme["accent"])
-    
-    # Large quote marks
+
     add_text(
         slide,
         "“",
@@ -487,7 +484,7 @@ def build_layout_5(prs, heading, bullets, theme, keyword):
         align=PP_ALIGN.LEFT,
         italic=True,
     )
-    
+
     add_text(
         slide,
         heading,
@@ -501,9 +498,9 @@ def build_layout_5(prs, heading, bullets, theme, keyword):
         align=PP_ALIGN.CENTER,
         wrap=True,
     )
-    
+
     add_rect(slide, Inches(5.5), Inches(3.2), Inches(2.33), Inches(0.04), RGBColor(0xFF, 0xFF, 0xFF))
-    
+
     top = Inches(3.6)
     for bullet in bullets[:3]:
         add_text(
@@ -519,22 +516,20 @@ def build_layout_5(prs, heading, bullets, theme, keyword):
             wrap=True,
         )
         top += Inches(0.8)
-    
-    # Small decorative image
+
     img = fetch_unsplash_image(keyword)
     if img:
         rounded = make_rounded_image(img, radius=25)
         add_image_to_slide(slide, rounded, Inches(10.8), Inches(5.8), Inches(2.2), Inches(1.5))
 
 
-# ─── LAYOUT 6 — Simple & Elegant (minimalist) ─────────────────────
+# ─── LAYOUT 6 — Minimal Two Column + Image ────────────────────────
 def build_layout_6(prs, heading, bullets, theme, keyword):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_bg(slide, theme["bg"])
-    
-    # Top thin accent
+
     add_rect(slide, 0, 0, SLIDE_W, Inches(0.06), theme["accent"])
-    
+
     add_text(
         slide,
         heading,
@@ -547,14 +542,13 @@ def build_layout_6(prs, heading, bullets, theme, keyword):
         bold=True,
         align=PP_ALIGN.LEFT,
     )
-    
+
     add_rect(slide, Inches(0.7), Inches(1.8), Inches(3.0), Inches(0.05), theme["accent2"], radius=30000)
-    
-    # Two column layout for bullets
+
     mid = (len(bullets) + 1) // 2
     col1 = bullets[:mid]
     col2 = bullets[mid:]
-    
+
     left_top = Inches(2.2)
     for bullet in col1[:4]:
         add_circle(slide, Inches(0.7), left_top + Inches(0.08), Inches(0.08), Inches(0.08), theme["accent"])
@@ -571,7 +565,7 @@ def build_layout_6(prs, heading, bullets, theme, keyword):
             wrap=True,
         )
         left_top += Inches(0.85)
-    
+
     right_top = Inches(2.2)
     for bullet in col2[:4]:
         add_circle(slide, Inches(6.8), right_top + Inches(0.08), Inches(0.08), Inches(0.08), theme["accent2"])
@@ -588,8 +582,7 @@ def build_layout_6(prs, heading, bullets, theme, keyword):
             wrap=True,
         )
         right_top += Inches(0.85)
-    
-    # Image at bottom right
+
     img = fetch_unsplash_image(keyword)
     if img:
         rounded = make_rounded_image(img, radius=20)
@@ -597,17 +590,15 @@ def build_layout_6(prs, heading, bullets, theme, keyword):
 
 
 # ─── THANK YOU SLIDE — Clean and elegant ──────────────────────────
-def build_thankyou_slide(prs, theme, is_premium=False):
+def build_thankyou_slide(prs, theme, is_premium: bool = False):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_bg(slide, theme["bg"])
-    
-    # Top and bottom thin accents
+
     add_rect(slide, 0, 0, SLIDE_W, Inches(0.05), theme["accent"])
     add_rect(slide, 0, SLIDE_H - Inches(0.05), SLIDE_W, Inches(0.05), theme["accent"])
-    
-    # Decorative circle
+
     add_circle(slide, Inches(5.5), Inches(2.0), Inches(2.5), Inches(2.5), theme["light_accent"], transparency=0.7)
-    
+
     add_text(
         slide,
         "Thank You",
@@ -620,7 +611,7 @@ def build_thankyou_slide(prs, theme, is_premium=False):
         bold=True,
         align=PP_ALIGN.CENTER,
     )
-    
+
     add_text(
         slide,
         "Created with SlideBot",
@@ -647,6 +638,21 @@ LAYOUTS = [
 
 
 def build_presentation(slide_data: dict, theme_name: str = "classic", is_premium: bool = False) -> str:
+    """
+    slide_data: {
+        "title": str,
+        "slides": [
+            {
+                "slide_number": int,
+                "heading": str,
+                "explanation": str,   # ignored in this builder, you use bullets
+                "image_keyword": str,
+                "bullets": [str, ...]
+            },
+            ...
+        ]
+    }
+    """
     theme = THEMES.get(theme_name, THEMES["classic"])
 
     prs = Presentation()
@@ -665,17 +671,17 @@ def build_presentation(slide_data: dict, theme_name: str = "classic", is_premium
     for idx, slide in enumerate(content_slides):
         heading = slide.get("heading", "")
         bullets = slide.get("bullets", [])
-        keyword = slide.get("image_keyword", "business")
+        keyword = slide.get("image_keyword") or heading.split()[0] if heading else "business"
         layout_fn = LAYOUTS[idx % len(LAYOUTS)]
         layout_fn(prs, heading, bullets, theme, keyword)
 
     # Thank you slide
-    build_thankyou_slide(prs, theme)
+    build_thankyou_slide(prs, theme, is_premium=is_premium)
 
     # Save the presentation
     filename = f"slidebot_{uuid.uuid4().hex[:8]}.pptx"
-    filepath = os.path.join("outputs", filename)
     os.makedirs("outputs", exist_ok=True)
+    filepath = os.path.join("outputs", filename)
     prs.save(filepath)
 
     return filepath
