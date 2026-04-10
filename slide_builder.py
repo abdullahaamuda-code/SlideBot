@@ -16,6 +16,7 @@ from PIL import Image, ImageDraw
 load_dotenv()
 
 UNSPLASH_KEY = os.getenv("UNSPLASH_ACCESS_KEY")
+PIXABAY_KEY = os.getenv("PIXABAY_API_KEY")
 
 # ─── THEMES — Premium corporate & Instagram-style color palettes ───
 THEMES = {
@@ -131,6 +132,74 @@ def fetch_unsplash_image(keyword: str):
     return None
 
 
+def fetch_pixabay_image(keyword: str):
+    try:
+        if not PIXABAY_KEY:
+            print("❌ No Pixabay key found")
+            return None
+
+        url = "https://pixabay.com/api/"
+        params = {
+            "key": PIXABAY_KEY,
+            "q": keyword,
+            "image_type": "photo",
+            "orientation": "horizontal",
+            "safesearch": "true",
+            "per_page": 3,
+        }
+
+        print(f"🖼 Fetching Pixabay image for: {keyword}")
+        response = requests.get(url, params=params, timeout=15)
+        print(f"🖼 Pixabay status: {response.status_code}")
+
+        if response.status_code == 200:
+            data = response.json()
+            hits = data.get("hits", [])
+            if not hits:
+                print("❌ Pixabay returned no hits")
+                return None
+
+            hit = random.choice(hits)
+            img_url = hit.get("largeImageURL") or hit.get("webformatURL")
+            if not img_url:
+                print("❌ Pixabay hit missing image URL")
+                return None
+
+            print(f"🖼 Got Pixabay image URL: {img_url[:60]}")
+            img_response = requests.get(img_url, timeout=15)
+            print(f"🖼 Pixabay image download status: {img_response.status_code}")
+            if img_response.status_code == 200:
+                print("✅ Pixabay image fetched successfully")
+                return BytesIO(img_response.content)
+
+        else:
+            print(f"❌ Pixabay error: {response.text[:200]}")
+
+    except requests.Timeout:
+        print(f"❌ Pixabay timeout for '{keyword}'")
+    except Exception as e:
+        print(f"❌ Pixabay failed for '{keyword}': {e}")
+
+    return None
+
+
+def fetch_image(keyword: str):
+    """
+    Try Unsplash first, then fall back to Pixabay.
+    """
+    img = fetch_unsplash_image(keyword)
+    if img:
+        return img
+
+    print("🔁 Falling back to Pixabay...")
+    img = fetch_pixabay_image(keyword)
+    if img:
+        return img
+
+    print("❌ All image providers failed")
+    return None
+
+
 # ─── ENHANCED HELPERS ─────────────────────────────────────────────
 def set_bg(slide, color):
     fill = slide.background.fill
@@ -145,10 +214,10 @@ def add_rect(slide, left, top, width, height, color, radius=0, transparency=0):
     shape = slide.shapes.add_shape(1, left, top, width, height)
     shape.fill.solid()
     shape.fill.fore_color.rgb = color
-    
+
     if transparency > 0:
         shape.fill.transparency = transparency
-    
+
     shape.line.fill.background()
 
     if radius > 0:
@@ -228,12 +297,34 @@ def make_rounded_image(image_stream, radius=60):
         return image_stream
 
 
+def add_corner_bars(slide, theme):
+    # Short bar at top-left
+    add_rect(
+        slide,
+        Inches(0.5),
+        Inches(0.2),
+        Inches(3.0),
+        Inches(0.08),
+        theme["accent"],
+    )
+
+    # Vertical bar on left
+    add_rect(
+        slide,
+        Inches(0.5),
+        Inches(0.6),
+        Inches(0.08),
+        Inches(2.5),
+        theme["accent2"],
+    )
+
+
 # ─── TITLE SLIDE — Premium hero layout ────────────────────────────
 def build_title_slide(prs, title, theme, keyword="abstract"):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_bg(slide, theme["bg"])
 
-    img = fetch_unsplash_image(keyword)
+    img = fetch_image(keyword)
     if img:
         add_image_to_slide(slide, img, 0, 0, SLIDE_W, SLIDE_H)
         overlay = add_rect(slide, 0, 0, SLIDE_W, SLIDE_H, RGBColor(0x00, 0x00, 0x00))
@@ -252,7 +343,7 @@ def build_title_slide(prs, title, theme, keyword="abstract"):
         Inches(11.73),
         Inches(2.5),
         Pt(52),
-        RGBColor(0xFF, 0xFF, 0xFF),
+        theme["title_color"],
         bold=True,
         align=PP_ALIGN.CENTER,
     )
@@ -276,16 +367,31 @@ def build_layout_a(prs, heading, bullets, theme, keyword):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_bg(slide, theme["bg"])
 
-    # Top accent bar
-    add_rect(slide, 0, 0, SLIDE_W, Inches(0.1), theme["accent"])
+    # NEW: corner design instead of full-width top bar
+    add_corner_bars(slide, theme)
 
     # Left image with rounded corners and subtle shadow effect
-    img = fetch_unsplash_image(keyword)
+    img = fetch_image(keyword)
     if img:
         rounded = make_rounded_image(img, radius=60)
-        add_image_to_slide(slide, rounded, Inches(0.3), Inches(0.3), Inches(5.2), Inches(6.9))
+        add_image_to_slide(
+            slide,
+            rounded,
+            Inches(0.3),
+            Inches(0.3),
+            Inches(5.2),
+            Inches(6.9),
+        )
     else:
-        add_rect(slide, Inches(0.3), Inches(0.3), Inches(5.2), Inches(6.9), theme["card_bg"], radius=60)
+        add_rect(
+            slide,
+            Inches(0.3),
+            Inches(0.3),
+            Inches(5.2),
+            Inches(6.9),
+            theme["card_bg"],
+            radius=60,
+        )
 
     # Right content area with better spacing
     heading_box = add_text(
@@ -300,16 +406,31 @@ def build_layout_a(prs, heading, bullets, theme, keyword):
         bold=True,
         align=PP_ALIGN.LEFT,
     )
-    
+
     # Decorative line under heading
-    add_rect(slide, Inches(5.9), Inches(1.9), Inches(2.5), Inches(0.06), theme["accent"], radius=30000)
+    add_rect(
+        slide,
+        Inches(5.9),
+        Inches(1.9),
+        Inches(2.5),
+        Inches(0.06),
+        theme["accent"],
+        radius=30000,
+    )
 
     # Enhanced bullet points with custom icons
     top = Inches(2.3)
     for i, bullet in enumerate(bullets[:5]):
-        # Colored bullet accent
-        add_rect(slide, Inches(5.9), top + Inches(0.12), Inches(0.12), Inches(0.12), theme["accent"], radius=30000)
-        
+        add_rect(
+            slide,
+            Inches(5.9),
+            top + Inches(0.12),
+            Inches(0.12),
+            Inches(0.12),
+            theme["accent"],
+            radius=30000,
+        )
+
         add_text(
             slide,
             bullet,
@@ -333,7 +454,7 @@ def build_layout_b(prs, heading, bullets, theme, keyword):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_bg(slide, theme["bg"])
 
-    img = fetch_unsplash_image(keyword)
+    img = fetch_image(keyword)
     if img:
         add_image_to_slide(slide, img, 0, 0, SLIDE_W, SLIDE_H)
 
@@ -353,7 +474,7 @@ def build_layout_b(prs, heading, bullets, theme, keyword):
         Inches(11.73),
         Inches(1.2),
         Pt(36),
-        RGBColor(0xFF, 0xFF, 0xFF),
+        theme["heading_color"],
         bold=True,
         align=PP_ALIGN.LEFT,
     )
@@ -404,7 +525,7 @@ def build_layout_c(prs, heading, bullets, theme, keyword):
     )
 
     # Right side image with rounded corners
-    img = fetch_unsplash_image(keyword)
+    img = fetch_image(keyword)
     if img:
         rounded = make_rounded_image(img, radius=50)
         add_image_to_slide(slide, rounded, Inches(9.3), Inches(0.25), Inches(3.8), Inches(3.8))
@@ -416,12 +537,12 @@ def build_layout_c(prs, heading, bullets, theme, keyword):
     for i, bullet in enumerate(bullets[:5]):
         card_color = card_colors[i % len(card_colors)]
         is_dark = card_color in [theme["accent"], theme["accent2"]]
-        
+
         # Card background with rounded corners
         add_rect(slide, Inches(0.5), top, Inches(8.5), Inches(0.82), card_color, radius=20000)
-        
+
         txt_color = RGBColor(0xFF, 0xFF, 0xFF) if is_dark else theme["bullet_color"]
-        
+
         # Add bullet number/icon
         add_text(
             slide,
@@ -435,7 +556,7 @@ def build_layout_c(prs, heading, bullets, theme, keyword):
             bold=True,
             align=PP_ALIGN.CENTER,
         )
-        
+
         add_text(
             slide,
             bullet,
@@ -456,13 +577,31 @@ def build_layout_c(prs, heading, bullets, theme, keyword):
 # ─── LAYOUT D — Impact quote / statistic style ────────────────────
 def build_layout_d(prs, heading, bullets, theme, keyword):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    set_bg(slide, theme["accent"])
 
-    # Decorative elements
-    add_rect(slide, Inches(1.0), Inches(0.5), Inches(0.12), Inches(1.2), RGBColor(0xFF, 0xFF, 0xFF), transparency=0.3)
-    add_rect(slide, Inches(11.5), Inches(5.8), Inches(0.12), Inches(1.2), RGBColor(0xFF, 0xFF, 0xFF), transparency=0.3)
+    # Use the normal background color so text is always readable
+    set_bg(slide, theme["bg"])
 
-    # Large quote/heading
+    # Decorative elements (can stay white, they are just shapes)
+    add_rect(
+        slide,
+        Inches(1.0),
+        Inches(0.5),
+        Inches(0.12),
+        Inches(1.2),
+        RGBColor(0xFF, 0xFF, 0xFF),
+        transparency=0.3,
+    )
+    add_rect(
+        slide,
+        Inches(11.5),
+        Inches(5.8),
+        Inches(0.12),
+        Inches(1.2),
+        RGBColor(0xFF, 0xFF, 0xFF),
+        transparency=0.3,
+    )
+
+    # Large quote/heading – use theme heading color
     add_text(
         slide,
         heading,
@@ -471,15 +610,22 @@ def build_layout_d(prs, heading, bullets, theme, keyword):
         Inches(10.33),
         Inches(2.0),
         Pt(38),
-        RGBColor(0xFF, 0xFF, 0xFF),
+        theme["heading_color"],
         bold=True,
         align=PP_ALIGN.CENTER,
     )
 
-    # Divider line
-    add_rect(slide, Inches(5.0), Inches(2.9), Inches(3.33), Inches(0.05), RGBColor(0xFF, 0xFF, 0xFF))
+    # Divider line (can stay white, it's decorative)
+    add_rect(
+        slide,
+        Inches(5.0),
+        Inches(2.9),
+        Inches(3.33),
+        Inches(0.05),
+        RGBColor(0xFF, 0xFF, 0xFF),
+    )
 
-    # Key points as centered statements
+    # Key points as centered statements – use theme bullet color
     top = Inches(3.2)
     for bullet in bullets[:4]:
         add_text(
@@ -490,13 +636,13 @@ def build_layout_d(prs, heading, bullets, theme, keyword):
             Inches(10.33),
             Inches(0.7),
             Pt(19),
-            RGBColor(0xFF, 0xFF, 0xFF),
+            theme["bullet_color"],
             align=PP_ALIGN.CENTER,
         )
         top += Inches(0.82)
 
     # Small decorative image
-    img = fetch_unsplash_image(keyword)
+    img = fetch_image(keyword)
     if img:
         rounded = make_rounded_image(img, radius=30)
         add_image_to_slide(slide, rounded, Inches(10.8), Inches(5.8), Inches(2.2), Inches(1.5))
@@ -532,7 +678,7 @@ def build_layout_e(prs, heading, bullets, theme, keyword):
     for i, bullet in enumerate(bullets[:5]):
         # Node circle
         add_rect(slide, Inches(1.16), top + Inches(0.15), Inches(0.16), Inches(0.16), theme["accent"], radius=30000)
-        
+
         # Year/step indicator
         add_text(
             slide,
@@ -546,7 +692,7 @@ def build_layout_e(prs, heading, bullets, theme, keyword):
             bold=True,
             align=PP_ALIGN.LEFT,
         )
-        
+
         # Bullet text
         add_text(
             slide,
@@ -611,7 +757,7 @@ def build_layout_f(prs, heading, bullets, theme, keyword):
         left_top += Inches(0.85)
 
     # Right column with image
-    img = fetch_unsplash_image(keyword)
+    img = fetch_image(keyword)
     if img:
         rounded = make_rounded_image(img, radius=50)
         add_image_to_slide(slide, rounded, Inches(7.0), Inches(1.6), Inches(5.8), Inches(4.5))
