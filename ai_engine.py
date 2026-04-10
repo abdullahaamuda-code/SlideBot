@@ -216,3 +216,69 @@ def generate_fallback_content(topic: str, num_slides: int) -> dict:
         "title": f"Understanding {topic[:50]}",
         "slides": slides
     }
+
+def ensure_intro_and_conclusion(slide_data: dict, topic: str, num_slides: int) -> dict:
+    """Force intro and conclusion slides to exist"""
+    
+    slides = slide_data.get("slides", [])
+    
+    # Check if first slide is intro (contains Intro/Introduction/Overview)
+    if slides:
+        first_heading = slides[0].get("heading", "").lower()
+        is_intro = any(word in first_heading for word in ["intro", "introduction", "overview", "welcome"])
+        
+        if not is_intro:
+            # Insert intro slide at beginning
+            intro_slide = {
+                "heading": f"Introduction to {topic}",
+                "explanation": f"This presentation explores {topic} and why it matters today. You'll learn key concepts and actionable insights.",
+                "bullets": [
+                    f"What is {topic} and why it's important",
+                    "Key challenges and opportunities",
+                    "What you'll learn from this presentation",
+                    "Real-world applications and examples"
+                ],
+                "image_keyword": "introduction"
+            }
+            slides.insert(0, intro_slide)
+    
+    # Check if last slide is conclusion
+    if slides:
+        last_heading = slides[-1].get("heading", "").lower()
+        is_conclusion = any(word in last_heading for word in ["conclusion", "summary", "key takeaways", "closing"])
+        
+        if not is_conclusion:
+            # Add conclusion slide at end
+            conclusion_slide = {
+                "heading": "Conclusion & Key Takeaways",
+                "explanation": f"In conclusion, {topic} offers significant opportunities. By applying these insights, you can achieve better results.",
+                "bullets": [
+                    "Review of main concepts discussed",
+                    "Key insights to remember and apply",
+                    "Actionable steps to take next",
+                    "Resources for further learning"
+                ],
+                "image_keyword": "success"
+            }
+            slides.append(conclusion_slide)
+    
+    # Ensure we have exactly num_slides slides (trim or pad)
+    if len(slides) > num_slides:
+        slides = slides[:num_slides]
+    elif len(slides) < num_slides:
+        # Add filler content slides if needed
+        while len(slides) < num_slides:
+            slides.append({
+                "heading": f"Key Insight {len(slides)}",
+                "explanation": f"This section explores additional important aspects of {topic}.",
+                "bullets": [
+                    "Important factor to consider",
+                    "Strategy that drives results",
+                    "Common pitfall to avoid",
+                    "Best practice to follow"
+                ],
+                "image_keyword": "business"
+            })
+    
+    slide_data["slides"] = slides
+    return slide_data
