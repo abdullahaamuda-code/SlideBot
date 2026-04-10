@@ -7,8 +7,8 @@ from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
 from pptx.enum.shapes import MSO_SHAPE
-from dotenv import load_dotenv  # Add this line with the other imports
 from PIL import Image, ImageDraw
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -180,37 +180,23 @@ def add_circle(slide, left, top, width, height, color, transparency=0):
     return shape
 
 
-def add_diagonal_line(slide, start_left, start_top, end_left, end_top, color, width_pt=2):
-    from pptx.enum.shapes import MSO_SHAPE
-    line = slide.shapes.add_shape(MSO_SHAPE.LINE_CALLOUT_1, start_left, start_top, 0, 0)
-    # Alternative approach for diagonal
-    connector = slide.shapes.add_connector(1, start_left, start_top, end_left, end_top)
-    connector.line.color.rgb = color
-    connector.line.width = Pt(width_pt)
-    return connector
-
-
 def add_corner_bracket(slide, x, y, size, color, corner="tl", thickness=3):
-    """Add L-shaped corner bracket (top-left, top-right, bottom-left, bottom-right)"""
+    """Add L-shaped corner bracket"""
     from pptx.enum.shapes import MSO_SHAPE
     
     bracket_width = Inches(size)
     bracket_height = Inches(size)
     
     if corner == "tl":
-        # Top-left corner - horizontal and vertical lines
         h_line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x, y, bracket_width, Pt(thickness))
         v_line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x, y, Pt(thickness), bracket_height)
     elif corner == "tr":
-        # Top-right corner
         h_line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x - bracket_width, y, bracket_width, Pt(thickness))
         v_line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x - Pt(thickness), y, Pt(thickness), bracket_height)
     elif corner == "bl":
-        # Bottom-left corner
         h_line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x, y - Pt(thickness), bracket_width, Pt(thickness))
         v_line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x, y - bracket_height, Pt(thickness), bracket_height)
     elif corner == "br":
-        # Bottom-right corner
         h_line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x - bracket_width, y - Pt(thickness), bracket_width, Pt(thickness))
         v_line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, x - Pt(thickness), y - bracket_height, Pt(thickness), bracket_height)
     else:
@@ -283,7 +269,7 @@ def make_rounded_image(image_stream, radius=60):
         return image_stream
 
 
-# ─── TITLE SLIDE — Premium hero layout with corner accents ─────────
+# ─── TITLE SLIDE ──────────────────────────────────────────────────
 def build_title_slide(prs, title, theme, keyword="abstract"):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_bg(slide, theme["bg"])
@@ -300,18 +286,13 @@ def build_title_slide(prs, title, theme, keyword="abstract"):
     add_corner_bracket(slide, Inches(0.3), SLIDE_H - Inches(0.3), 0.5, theme["accent"], "bl")
     add_corner_bracket(slide, SLIDE_W - Inches(0.3), SLIDE_H - Inches(0.3), 0.5, theme["accent"], "br")
 
-    # Large decorative circle behind title
-    add_circle(slide, Inches(3.5), Inches(1.5), Inches(6.33), Inches(4.5), theme["accent"], transparency=0.85)
-    
     # Side accent bars
     add_rect(slide, 0, 0, Inches(0.08), SLIDE_H, theme["accent"])
     add_rect(slide, SLIDE_W - Inches(0.08), 0, Inches(0.08), SLIDE_H, theme["accent"])
 
-    # Gradient-like effect with multiple accent bars
     add_rect(slide, 0, Inches(5.5), SLIDE_W, Inches(2.0), theme["accent"], transparency=0.15)
     add_rect(slide, 0, Inches(6.2), SLIDE_W, Inches(1.3), theme["accent"], transparency=0.3)
 
-    # Main title with premium spacing
     add_text(
         slide,
         title,
@@ -339,77 +320,74 @@ def build_title_slide(prs, title, theme, keyword="abstract"):
     )
 
 
-# ─── LAYOUT A — Split screen with side accents and corner brackets ─
+# ─── LAYOUT A — Split screen (FIXED: circles moved, bullets proper spacing) ───
 def build_layout_a(prs, heading, bullets, theme, keyword):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_bg(slide, theme["bg"])
 
-    # All 4 corner brackets
-    add_corner_bracket(slide, Inches(0.2), Inches(0.2), 0.4, theme["soft_accent"], "tl")
-    add_corner_bracket(slide, SLIDE_W - Inches(0.2), Inches(0.2), 0.4, theme["soft_accent"], "tr")
-    add_corner_bracket(slide, Inches(0.2), SLIDE_H - Inches(0.2), 0.4, theme["soft_accent"], "bl")
-    add_corner_bracket(slide, SLIDE_W - Inches(0.2), SLIDE_H - Inches(0.2), 0.4, theme["soft_accent"], "br")
+    # Corner brackets (smaller, out of way)
+    add_corner_bracket(slide, Inches(0.15), Inches(0.15), 0.3, theme["soft_accent"], "tl")
+    add_corner_bracket(slide, SLIDE_W - Inches(0.15), Inches(0.15), 0.3, theme["soft_accent"], "tr")
+    add_corner_bracket(slide, Inches(0.15), SLIDE_H - Inches(0.15), 0.3, theme["soft_accent"], "bl")
+    add_corner_bracket(slide, SLIDE_W - Inches(0.15), SLIDE_H - Inches(0.15), 0.3, theme["soft_accent"], "br")
 
     # Side vertical accent bars
-    add_rect(slide, Inches(0.08), 0, Inches(0.06), SLIDE_H, theme["accent"], transparency=0.3)
-    add_rect(slide, SLIDE_W - Inches(0.14), 0, Inches(0.06), SLIDE_H, theme["accent"], transparency=0.3)
+    add_rect(slide, Inches(0.05), 0, Inches(0.04), SLIDE_H, theme["accent"], transparency=0.3)
+    add_rect(slide, SLIDE_W - Inches(0.09), 0, Inches(0.04), SLIDE_H, theme["accent"], transparency=0.3)
 
     # Top accent bar
-    add_rect(slide, 0, 0, SLIDE_W, Inches(0.08), theme["accent"])
+    add_rect(slide, 0, 0, SLIDE_W, Inches(0.06), theme["accent"])
 
-    # Left image with rounded corners and decorative circle behind
+    # Left image - NO circles covering it
     img = fetch_unsplash_image(keyword)
     if img:
-        rounded = make_rounded_image(img, radius=60)
-        add_image_to_slide(slide, rounded, Inches(0.4), Inches(0.4), Inches(5.0), Inches(6.7))
+        rounded = make_rounded_image(img, radius=50)
+        add_image_to_slide(slide, rounded, Inches(0.3), Inches(0.3), Inches(5.2), Inches(6.9))
     else:
-        add_rect(slide, Inches(0.4), Inches(0.4), Inches(5.0), Inches(6.7), theme["card_bg"], radius=60)
+        add_rect(slide, Inches(0.3), Inches(0.3), Inches(5.2), Inches(6.9), theme["card_bg"], radius=50)
 
-    # Decorative circle overlapping image
-    add_circle(slide, Inches(5.0), Inches(6.5), Inches(1.0), Inches(1.0), theme["light_accent"], transparency=0.5)
-
-    # Right content area with better spacing
-    heading_box = add_text(
+    # Right content area
+    add_text(
         slide,
         heading,
-        Inches(5.7),
-        Inches(0.5),
-        Inches(7.3),
-        Inches(1.3),
-        Pt(32),
+        Inches(5.8),
+        Inches(0.4),
+        Inches(7.2),
+        Inches(1.2),
+        Pt(30),
         theme["heading_color"],
         bold=True,
         align=PP_ALIGN.LEFT,
     )
     
-    # Decorative line under heading
-    add_rect(slide, Inches(5.7), Inches(1.9), Inches(2.5), Inches(0.06), theme["accent"], radius=30000)
+    add_rect(slide, Inches(5.8), Inches(1.6), Inches(2.2), Inches(0.05), theme["accent"], radius=30000)
 
-    # Enhanced bullet points with custom icons
-    top = Inches(2.3)
-    for i, bullet in enumerate(bullets[:5]):
-        # Colored bullet accent circle
-        add_circle(slide, Inches(5.7), top + Inches(0.08), Inches(0.1), Inches(0.1), theme["accent"])
+    # Bullets with PROPER SPACING - each bullet gets full width and wraps correctly
+    top = Inches(2.0)
+    for bullet in bullets[:6]:  # Allow up to 6 bullets
+        # Bullet dot
+        add_circle(slide, Inches(5.8), top + Inches(0.1), Inches(0.1), Inches(0.1), theme["accent"])
         
+        # Bullet text with proper width and wrapping
         add_text(
             slide,
             bullet,
-            Inches(6.0),
+            Inches(6.1),
             top,
-            Inches(7.0),
-            Inches(0.65),
-            Pt(17),
+            Inches(6.9),
+            Inches(0.7),
+            Pt(16),
             theme["bullet_color"],
             align=PP_ALIGN.LEFT,
             wrap=True,
         )
-        top += Inches(0.85)
+        top += Inches(0.85)  # Consistent spacing
 
     # Bottom accent bar
-    add_rect(slide, 0, Inches(7.42), SLIDE_W, Inches(0.08), theme["accent"])
+    add_rect(slide, 0, Inches(7.44), SLIDE_W, Inches(0.06), theme["accent"])
 
 
-# ─── LAYOUT B — Full bleed with diagonal accents and side bars ────
+# ─── LAYOUT B — Full bleed (FIXED: bullets wrap properly) ─────────
 def build_layout_b(prs, heading, bullets, theme, keyword):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_bg(slide, theme["bg"])
@@ -418,25 +396,22 @@ def build_layout_b(prs, heading, bullets, theme, keyword):
     if img:
         add_image_to_slide(slide, img, 0, 0, SLIDE_W, SLIDE_H)
 
-    # Gradient-like overlay
     add_rect(slide, 0, Inches(2.8), SLIDE_W, Inches(4.7), theme["accent"], transparency=0.7)
     add_rect(slide, 0, Inches(3.0), SLIDE_W, Inches(4.5), RGBColor(0x00, 0x00, 0x00), transparency=0.3)
 
     # Side accent bars
-    add_rect(slide, 0, 0, Inches(0.1), SLIDE_H, theme["accent"])
-    add_rect(slide, SLIDE_W - Inches(0.1), 0, Inches(0.1), SLIDE_H, theme["accent"])
+    add_rect(slide, 0, 0, Inches(0.08), SLIDE_H, theme["accent"])
+    add_rect(slide, SLIDE_W - Inches(0.08), 0, Inches(0.08), SLIDE_H, theme["accent"])
     
     # Corner brackets
-    add_corner_bracket(slide, Inches(0.25), Inches(0.25), 0.45, RGBColor(0xFF, 0xFF, 0xFF), "tl")
-    add_corner_bracket(slide, SLIDE_W - Inches(0.25), Inches(0.25), 0.45, RGBColor(0xFF, 0xFF, 0xFF), "tr")
-    add_corner_bracket(slide, Inches(0.25), SLIDE_H - Inches(0.25), 0.45, RGBColor(0xFF, 0xFF, 0xFF), "bl")
-    add_corner_bracket(slide, SLIDE_W - Inches(0.25), SLIDE_H - Inches(0.25), 0.45, RGBColor(0xFF, 0xFF, 0xFF), "br")
+    add_corner_bracket(slide, Inches(0.2), Inches(0.2), 0.35, RGBColor(0xFF, 0xFF, 0xFF), "tl")
+    add_corner_bracket(slide, SLIDE_W - Inches(0.2), Inches(0.2), 0.35, RGBColor(0xFF, 0xFF, 0xFF), "tr")
+    add_corner_bracket(slide, Inches(0.2), SLIDE_H - Inches(0.2), 0.35, RGBColor(0xFF, 0xFF, 0xFF), "bl")
+    add_corner_bracket(slide, SLIDE_W - Inches(0.2), SLIDE_H - Inches(0.2), 0.35, RGBColor(0xFF, 0xFF, 0xFF), "br")
 
-    # Top and bottom accent bars
-    add_rect(slide, 0, 0, SLIDE_W, Inches(0.1), theme["accent"])
-    add_rect(slide, 0, SLIDE_H - Inches(0.1), SLIDE_W, Inches(0.1), theme["accent"])
+    add_rect(slide, 0, 0, SLIDE_W, Inches(0.08), theme["accent"])
+    add_rect(slide, 0, SLIDE_H - Inches(0.08), SLIDE_W, Inches(0.08), theme["accent"])
 
-    # Large heading
     add_text(
         slide,
         heading,
@@ -444,18 +419,17 @@ def build_layout_b(prs, heading, bullets, theme, keyword):
         Inches(3.1),
         Inches(11.73),
         Inches(1.2),
-        Pt(36),
+        Pt(34),
         RGBColor(0xFF, 0xFF, 0xFF),
         bold=True,
         align=PP_ALIGN.LEFT,
     )
 
-    # Decorative line under heading
-    add_rect(slide, Inches(0.8), Inches(4.3), Inches(3.0), Inches(0.04), RGBColor(0xFF, 0xFF, 0xFF))
+    add_rect(slide, Inches(0.8), Inches(4.3), Inches(2.8), Inches(0.04), RGBColor(0xFF, 0xFF, 0xFF))
 
-    # Bullets with chevron style
+    # Bullets with proper spacing and wrapping
     top = Inches(4.6)
-    for bullet in bullets[:4]:
+    for bullet in bullets[:5]:
         add_text(
             slide,
             f"◆  {bullet}",
@@ -463,78 +437,74 @@ def build_layout_b(prs, heading, bullets, theme, keyword):
             top,
             Inches(11.73),
             Inches(0.7),
-            Pt(18),
+            Pt(17),
             RGBColor(0xFF, 0xFF, 0xFF),
             align=PP_ALIGN.LEFT,
+            wrap=True,
         )
-        top += Inches(0.75)
+        top += Inches(0.72)
 
-    # Bottom indicator
-    add_rect(slide, Inches(6.165), Inches(7.25), Inches(1.0), Inches(0.06), RGBColor(0xFF, 0xFF, 0xFF), radius=30000)
+    add_rect(slide, Inches(6.165), Inches(7.25), Inches(1.0), Inches(0.05), RGBColor(0xFF, 0xFF, 0xFF), radius=30000)
 
 
-# ─── LAYOUT C — Card-style with overlapping circles and side accents ─
+# ─── LAYOUT C — Card style (FIXED: circles moved, text wraps) ─────
 def build_layout_c(prs, heading, bullets, theme, keyword):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_bg(slide, theme["bg"])
 
-    # Decorative large circle in background
-    add_circle(slide, Inches(10.0), Inches(1.0), Inches(4.0), Inches(4.0), theme["light_accent"], transparency=0.7)
-    add_circle(slide, Inches(0.5), Inches(5.5), Inches(2.5), Inches(2.5), theme["light_accent"], transparency=0.5)
+    # Decorative circles in BACKGROUND (behind everything, NOT covering images)
+    add_circle(slide, Inches(11.5), Inches(0.5), Inches(3.0), Inches(3.0), theme["light_accent"], transparency=0.85)
+    add_circle(slide, Inches(0.3), Inches(6.0), Inches(2.0), Inches(2.0), theme["light_accent"], transparency=0.85)
 
     # Side accent bars
-    add_rect(slide, Inches(0.06), 0, Inches(0.06), SLIDE_H, theme["accent"], transparency=0.4)
-    add_rect(slide, SLIDE_W - Inches(0.12), 0, Inches(0.06), SLIDE_H, theme["accent"], transparency=0.4)
+    add_rect(slide, Inches(0.05), 0, Inches(0.05), SLIDE_H, theme["accent"], transparency=0.3)
+    add_rect(slide, SLIDE_W - Inches(0.1), 0, Inches(0.05), SLIDE_H, theme["accent"], transparency=0.3)
     
-    # Corner brackets
-    add_corner_bracket(slide, Inches(0.2), Inches(0.2), 0.4, theme["accent2"], "tl")
-    add_corner_bracket(slide, SLIDE_W - Inches(0.2), SLIDE_H - Inches(0.2), 0.4, theme["accent2"], "br")
+    add_corner_bracket(slide, Inches(0.15), Inches(0.15), 0.35, theme["accent2"], "tl")
+    add_corner_bracket(slide, SLIDE_W - Inches(0.15), SLIDE_H - Inches(0.15), 0.35, theme["accent2"], "br")
 
-    # Top and bottom bars
-    add_rect(slide, 0, 0, SLIDE_W, Inches(0.08), theme["accent"])
-    add_rect(slide, 0, SLIDE_H - Inches(0.08), SLIDE_W, Inches(0.08), theme["accent"])
+    add_rect(slide, 0, 0, SLIDE_W, Inches(0.06), theme["accent"])
+    add_rect(slide, 0, SLIDE_H - Inches(0.06), SLIDE_W, Inches(0.06), theme["accent"])
 
-    # Heading
     add_text(
         slide,
         heading,
-        Inches(0.7),
-        Inches(0.35),
-        Inches(9.0),
-        Inches(1.0),
-        Pt(30),
+        Inches(0.6),
+        Inches(0.3),
+        Inches(8.5),
+        Inches(0.9),
+        Pt(28),
         theme["heading_color"],
         bold=True,
         align=PP_ALIGN.LEFT,
     )
 
-    # Right side image with rounded corners and circle accent
+    # Right side image (NO circles covering it)
     img = fetch_unsplash_image(keyword)
     if img:
-        rounded = make_rounded_image(img, radius=50)
-        add_image_to_slide(slide, rounded, Inches(9.3), Inches(0.25), Inches(3.8), Inches(3.8))
-        add_circle(slide, Inches(12.5), Inches(3.8), Inches(0.8), Inches(0.8), theme["accent"], transparency=0.6)
+        rounded = make_rounded_image(img, radius=40)
+        add_image_to_slide(slide, rounded, Inches(9.5), Inches(0.2), Inches(3.6), Inches(3.5))
 
-    # Card-style bullets
-    top = Inches(1.5)
+    # Card-style bullets with proper text wrapping
+    top = Inches(1.4)
     card_colors = [theme["accent"], theme["accent2"], theme["card_bg"], theme["light_accent"]]
 
     for i, bullet in enumerate(bullets[:5]):
         card_color = card_colors[i % len(card_colors)]
         is_dark = card_color in [theme["accent"], theme["accent2"]]
         
-        add_rect(slide, Inches(0.5), top, Inches(8.5), Inches(0.82), card_color, radius=20000)
+        add_rect(slide, Inches(0.4), top, Inches(8.8), Inches(0.82), card_color, radius=15000)
         
         txt_color = RGBColor(0xFF, 0xFF, 0xFF) if is_dark else theme["bullet_color"]
         
         add_text(
             slide,
             f"0{i+1}",
+            Inches(0.55),
+            top + Inches(0.1),
             Inches(0.7),
-            top + Inches(0.12),
-            Inches(0.8),
             Inches(0.6),
-            Pt(14),
+            Pt(13),
             txt_color,
             bold=True,
             align=PP_ALIGN.CENTER,
@@ -543,58 +513,53 @@ def build_layout_c(prs, heading, bullets, theme, keyword):
         add_text(
             slide,
             bullet,
-            Inches(1.6),
+            Inches(1.4),
             top + Inches(0.08),
-            Inches(7.2),
+            Inches(7.6),
             Inches(0.65),
-            Pt(16),
+            Pt(15),
             txt_color,
             align=PP_ALIGN.LEFT,
+            wrap=True,
         )
-        top += Inches(0.96)
+        top += Inches(0.94)
 
 
-# ─── LAYOUT D — Impact quote with diagonal lines and geometric shapes ─
+# ─── LAYOUT D — Impact quote (FIXED: no overlapping circles) ──────
 def build_layout_d(prs, heading, bullets, theme, keyword):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_bg(slide, theme["accent"])
 
-    # Diagonal accent lines in corners
-    add_rect(slide, 0, 0, Inches(1.5), Inches(0.06), RGBColor(0xFF, 0xFF, 0xFF), transparency=0.4)
-    add_rect(slide, 0, 0, Inches(0.06), Inches(1.5), RGBColor(0xFF, 0xFF, 0xFF), transparency=0.4)
-    add_rect(slide, SLIDE_W - Inches(1.5), 0, Inches(1.5), Inches(0.06), RGBColor(0xFF, 0xFF, 0xFF), transparency=0.4)
-    add_rect(slide, SLIDE_W - Inches(0.06), 0, Inches(0.06), Inches(1.5), RGBColor(0xFF, 0xFF, 0xFF), transparency=0.4)
+    # Diagonal accent lines (subtle, not covering anything)
+    add_rect(slide, 0, 0, Inches(1.2), Inches(0.04), RGBColor(0xFF, 0xFF, 0xFF), transparency=0.3)
+    add_rect(slide, 0, 0, Inches(0.04), Inches(1.2), RGBColor(0xFF, 0xFF, 0xFF), transparency=0.3)
+    add_rect(slide, SLIDE_W - Inches(1.2), 0, Inches(1.2), Inches(0.04), RGBColor(0xFF, 0xFF, 0xFF), transparency=0.3)
+    add_rect(slide, SLIDE_W - Inches(0.04), 0, Inches(0.04), Inches(1.2), RGBColor(0xFF, 0xFF, 0xFF), transparency=0.3)
     
-    # Bottom diagonal accents
-    add_rect(slide, 0, SLIDE_H - Inches(0.06), Inches(1.5), Inches(0.06), RGBColor(0xFF, 0xFF, 0xFF), transparency=0.4)
-    add_rect(slide, SLIDE_W - Inches(1.5), SLIDE_H - Inches(0.06), Inches(1.5), Inches(0.06), RGBColor(0xFF, 0xFF, 0xFF), transparency=0.4)
+    add_rect(slide, 0, SLIDE_H - Inches(0.04), Inches(1.2), Inches(0.04), RGBColor(0xFF, 0xFF, 0xFF), transparency=0.3)
+    add_rect(slide, SLIDE_W - Inches(1.2), SLIDE_H - Inches(0.04), Inches(1.2), Inches(0.04), RGBColor(0xFF, 0xFF, 0xFF), transparency=0.3)
 
     # Side accent bars
-    add_rect(slide, 0, 0, Inches(0.08), SLIDE_H, RGBColor(0xFF, 0xFF, 0xFF), transparency=0.3)
-    add_rect(slide, SLIDE_W - Inches(0.08), 0, Inches(0.08), SLIDE_H, RGBColor(0xFF, 0xFF, 0xFF), transparency=0.3)
+    add_rect(slide, 0, 0, Inches(0.06), SLIDE_H, RGBColor(0xFF, 0xFF, 0xFF), transparency=0.25)
+    add_rect(slide, SLIDE_W - Inches(0.06), 0, Inches(0.06), SLIDE_H, RGBColor(0xFF, 0xFF, 0xFF), transparency=0.25)
 
-    # Decorative circles
-    add_circle(slide, Inches(0.5), Inches(6.0), Inches(1.2), Inches(1.2), RGBColor(0xFF, 0xFF, 0xFF), transparency=0.85)
-    add_circle(slide, Inches(11.5), Inches(0.5), Inches(1.0), Inches(1.0), RGBColor(0xFF, 0xFF, 0xFF), transparency=0.85)
-
-    # Large quote/heading
     add_text(
         slide,
         heading,
         Inches(1.5),
         Inches(0.8),
         Inches(10.33),
-        Inches(2.0),
-        Pt(38),
+        Inches(1.8),
+        Pt(36),
         RGBColor(0xFF, 0xFF, 0xFF),
         bold=True,
         align=PP_ALIGN.CENTER,
+        wrap=True,
     )
 
-    # Divider line
-    add_rect(slide, Inches(5.0), Inches(2.9), Inches(3.33), Inches(0.05), RGBColor(0xFF, 0xFF, 0xFF))
+    add_rect(slide, Inches(5.0), Inches(2.8), Inches(3.33), Inches(0.04), RGBColor(0xFF, 0xFF, 0xFF))
 
-    # Key points
+    # Bullets with proper spacing
     top = Inches(3.2)
     for bullet in bullets[:4]:
         add_text(
@@ -604,262 +569,124 @@ def build_layout_d(prs, heading, bullets, theme, keyword):
             top,
             Inches(10.33),
             Inches(0.7),
-            Pt(19),
+            Pt(18),
             RGBColor(0xFF, 0xFF, 0xFF),
             align=PP_ALIGN.CENTER,
+            wrap=True,
         )
-        top += Inches(0.82)
+        top += Inches(0.8)
 
-    # Decorative image with circle frame
+    # Small image at bottom right (no circles)
     img = fetch_unsplash_image(keyword)
     if img:
-        rounded = make_rounded_image(img, radius=30)
+        rounded = make_rounded_image(img, radius=25)
         add_image_to_slide(slide, rounded, Inches(10.8), Inches(5.8), Inches(2.2), Inches(1.5))
-        add_circle(slide, Inches(10.6), Inches(5.6), Inches(2.6), Inches(1.9), RGBColor(0xFF, 0xFF, 0xFF), transparency=0.8)
 
 
-# ─── LAYOUT E — Timeline with vertical side bar and node circles ───
+# ─── LAYOUT E — Timeline (FIXED: proper text wrapping) ────────────
 def build_layout_e(prs, heading, bullets, theme, keyword):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_bg(slide, theme["bg"])
 
-    # Thick vertical side bar (modern corporate look)
-    add_rect(slide, 0, 0, Inches(0.25), SLIDE_H, theme["accent"])
+    add_rect(slide, 0, 0, Inches(0.22), SLIDE_H, theme["accent"])
     
-    # Corner brackets
-    add_corner_bracket(slide, Inches(0.3), Inches(0.2), 0.4, theme["accent2"], "tl")
-    add_corner_bracket(slide, SLIDE_W - Inches(0.2), SLIDE_H - Inches(0.2), 0.4, theme["accent2"], "br")
+    add_corner_bracket(slide, Inches(0.25), Inches(0.15), 0.35, theme["accent2"], "tl")
+    add_corner_bracket(slide, SLIDE_W - Inches(0.15), SLIDE_H - Inches(0.15), 0.35, theme["accent2"], "br")
     
-    # Top and bottom bars
-    add_rect(slide, 0, 0, SLIDE_W, Inches(0.08), theme["accent"])
-    add_rect(slide, 0, SLIDE_H - Inches(0.08), SLIDE_W, Inches(0.08), theme["accent"])
+    add_rect(slide, 0, 0, SLIDE_W, Inches(0.06), theme["accent"])
+    add_rect(slide, 0, SLIDE_H - Inches(0.06), SLIDE_W, Inches(0.06), theme["accent"])
 
-    # Heading with accent background
-    add_rect(slide, Inches(0.4), Inches(0.4), Inches(9.0), Inches(0.9), theme["light_accent"], radius=20000)
+    add_rect(slide, Inches(0.35), Inches(0.35), Inches(8.5), Inches(0.8), theme["light_accent"], radius=15000)
     add_text(
         slide,
         heading,
-        Inches(0.6),
-        Inches(0.45),
-        Inches(9.0),
-        Inches(0.8),
-        Pt(28),
+        Inches(0.5),
+        Inches(0.4),
+        Inches(8.5),
+        Inches(0.7),
+        Pt(26),
         theme["heading_color"],
         bold=True,
         align=PP_ALIGN.LEFT,
     )
 
     # Timeline line
-    add_rect(slide, Inches(1.3), Inches(1.6), Inches(0.08), Inches(5.5), theme["light_accent"], radius=30000)
+    add_rect(slide, Inches(1.2), Inches(1.5), Inches(0.06), Inches(5.6), theme["light_accent"], radius=30000)
 
-    # Bullets as timeline nodes
-    top = Inches(1.6)
+    # Timeline bullets with proper wrapping
+    top = Inches(1.5)
     for i, bullet in enumerate(bullets[:5]):
-        # Node circle with inner dot
-        add_circle(slide, Inches(1.26), top + Inches(0.12), Inches(0.16), Inches(0.16), theme["accent"])
-        add_circle(slide, Inches(1.3), top + Inches(0.16), Inches(0.08), Inches(0.08), RGBColor(0xFF, 0xFF, 0xFF))
+        add_circle(slide, Inches(1.17), top + Inches(0.12), Inches(0.14), Inches(0.14), theme["accent"])
+        add_circle(slide, Inches(1.2), top + Inches(0.15), Inches(0.08), Inches(0.08), RGBColor(0xFF, 0xFF, 0xFF))
         
-        # Year/step indicator
         add_text(
             slide,
             f"STEP 0{i+1}",
-            Inches(1.7),
+            Inches(1.55),
             top,
             Inches(1.5),
-            Inches(0.5),
-            Pt(12),
+            Inches(0.45),
+            Pt(11),
             theme["accent2"],
             bold=True,
             align=PP_ALIGN.LEFT,
         )
         
-        # Bullet text
         add_text(
             slide,
             bullet,
-            Inches(3.3),
+            Inches(3.2),
             top,
-            Inches(9.5),
+            Inches(9.6),
             Inches(0.7),
-            Pt(16),
+            Pt(15),
             theme["bullet_color"],
             align=PP_ALIGN.LEFT,
             wrap=True,
         )
-        top += Inches(1.05)
+        top += Inches(1.02)
 
-    # Decorative image
-# ─── LAYOUT F — Two-column comparison with side accents ────────────
+    # Small image at bottom (optional, not covering text)
+    img = fetch_unsplash_image(keyword)
+    if img and len(bullets) <= 4:
+        rounded = make_rounded_image(img, radius=25)
+        add_image_to_slide(slide, rounded, Inches(11.0), Inches(6.0), Inches(2.0), Inches(1.3))
+
+
+# ─── LAYOUT F — Two-column (FIXED: no overlapping, proper wrap) ───
 def build_layout_f(prs, heading, bullets, theme, keyword):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     set_bg(slide, theme["bg"])
 
-    # Corner brackets
-    add_corner_bracket(slide, Inches(0.2), Inches(0.2), 0.4, theme["soft_accent"], "tl")
-    add_corner_bracket(slide, SLIDE_W - Inches(0.2), SLIDE_H - Inches(0.2), 0.4, theme["soft_accent"], "br")
+    add_corner_bracket(slide, Inches(0.15), Inches(0.15), 0.35, theme["soft_accent"], "tl")
+    add_corner_bracket(slide, SLIDE_W - Inches(0.15), SLIDE_H - Inches(0.15), 0.35, theme["soft_accent"], "br")
     
-    # Side accent bars
-    add_rect(slide, Inches(0.06), 0, Inches(0.06), SLIDE_H, theme["accent"], transparency=0.3)
-    add_rect(slide, SLIDE_W - Inches(0.12), 0, Inches(0.06), SLIDE_H, theme["accent"], transparency=0.3)
+    add_rect(slide, Inches(0.05), 0, Inches(0.05), SLIDE_H, theme["accent"], transparency=0.3)
+    add_rect(slide, SLIDE_W - Inches(0.1), 0, Inches(0.05), SLIDE_H, theme["accent"], transparency=0.3)
 
-    # Top accent bar
-    add_rect(slide, 0, 0, SLIDE_W, Inches(0.08), theme["accent"])
+    add_rect(slide, 0, 0, SLIDE_W, Inches(0.06), theme["accent"])
 
-    # Main heading
     add_text(
         slide,
         heading,
-        Inches(0.7),
-        Inches(0.4),
+        Inches(0.6),
+        Inches(0.35),
         Inches(11.73),
         Inches(0.9),
-        Pt(32),
+        Pt(30),
         theme["heading_color"],
         bold=True,
         align=PP_ALIGN.LEFT,
     )
     
-    add_rect(slide, Inches(0.7), Inches(1.3), Inches(2.5), Inches(0.06), theme["accent"], radius=30000)
+    add_rect(slide, Inches(0.6), Inches(1.25), Inches(2.2), Inches(0.05), theme["accent"], radius=30000)
 
     # Split bullets into two columns
-    mid = len(bullets) // 2
+    mid = (len(bullets) + 1) // 2
     col1 = bullets[:mid]
     col2 = bullets[mid:]
 
-    # Left column bullets
+    # Left column
     left_top = Inches(1.6)
-    for bullet in col1[:4]:
-        add_circle(slide, Inches(0.7), left_top + Inches(0.08), Inches(0.1), Inches(0.1), theme["accent"])
-        add_text(
-            slide,
-            bullet,
-            Inches(1.0),
-            left_top,
-            Inches(5.0),
-            Inches(0.65),
-            Pt(16),
-            theme["bullet_color"],
-            align=PP_ALIGN.LEFT,
-        )
-        left_top += Inches(0.85)
-
-    # Right side image
-    img = fetch_unsplash_image(keyword)
-    if img:
-        rounded = make_rounded_image(img, radius=50)
-        add_image_to_slide(slide, rounded, Inches(7.0), Inches(1.6), Inches(5.8), Inches(4.5))
-        add_circle(slide, Inches(12.0), Inches(5.5), Inches(0.8), Inches(0.8), theme["accent"], transparency=0.5)
-
-    # Right column bullets (if space below image)
-    right_top = Inches(6.3)
-    for bullet in col2[:2]:
-        add_circle(slide, Inches(7.0), right_top + Inches(0.08), Inches(0.08), Inches(0.08), theme["accent2"])
-        add_text(
-            slide,
-            bullet,
-            Inches(7.3),
-            right_top,
-            Inches(5.5),
-            Inches(0.6),
-            Pt(14),
-            theme["bullet_color"],
-            align=PP_ALIGN.LEFT,
-        )
-        right_top += Inches(0.7)
-
-    # Bottom bar
-    add_rect(slide, 0, Inches(7.42), SLIDE_W, Inches(0.08), theme["accent"])
-
-# ─── THANK YOU SLIDE — Premium closing with full accents ──────────
-def build_thankyou_slide(prs, theme, is_premium=False):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    set_bg(slide, theme["bg"])
-
-    # All 4 corner brackets
-    add_corner_bracket(slide, Inches(0.3), Inches(0.3), 0.5, theme["accent"], "tl")
-    add_corner_bracket(slide, SLIDE_W - Inches(0.3), Inches(0.3), 0.5, theme["accent"], "tr")
-    add_corner_bracket(slide, Inches(0.3), SLIDE_H - Inches(0.3), 0.5, theme["accent"], "bl")
-    add_corner_bracket(slide, SLIDE_W - Inches(0.3), SLIDE_H - Inches(0.3), 0.5, theme["accent"], "br")
-
-    # Side accent bars
-    add_rect(slide, 0, 0, Inches(0.1), SLIDE_H, theme["accent"])
-    add_rect(slide, SLIDE_W - Inches(0.1), 0, Inches(0.1), SLIDE_H, theme["accent"])
-    
-    # Top and bottom bars
-    add_rect(slide, 0, 0, SLIDE_W, Inches(0.1), theme["accent"])
-    add_rect(slide, 0, SLIDE_H - Inches(0.1), SLIDE_W, Inches(0.1), theme["accent"])
-
-    # Decorative circle element
-    add_circle(slide, Inches(5.0), Inches(1.8), Inches(3.33), Inches(3.33), theme["light_accent"], transparency=0.5)
-    add_circle(slide, Inches(4.5), Inches(4.5), Inches(4.5), Inches(4.5), theme["light_accent"], transparency=0.3)
-
-    # Main thank you text
-    add_text(
-        slide,
-        "Thank You",
-        Inches(1.0),
-        Inches(2.5),
-        Inches(11.33),
-        Inches(1.5),
-        Pt(54),
-        theme["title_color"],
-        bold=True,
-        align=PP_ALIGN.CENTER,
-    )
-
-    add_text(
-        slide,
-        "Created with SlideBot",
-        Inches(1.0),
-        Inches(4.8),
-        Inches(11.33),
-        Inches(0.6),
-        Pt(18),
-        theme["bullet_color"],
-        align=PP_ALIGN.CENTER,
-        italic=True,
-    )
-
-# ─── MAIN BUILD FUNCTION ──────────────────────────────────────────
-LAYOUTS = [
-    build_layout_a,
-    build_layout_b,
-    build_layout_c,
-    build_layout_d,
-    build_layout_e,
-    build_layout_f,
-]
-
-
-def build_presentation(slide_data: dict, theme_name: str = "classic", is_premium: bool = False) -> str:
-    theme = THEMES.get(theme_name, THEMES["classic"])
-
-    prs = Presentation()
-    prs.slide_width = SLIDE_W
-    prs.slide_height = SLIDE_H
-
-    slides = slide_data.get("slides", [])
-    title = slide_data.get("title", "My Presentation")
-
-    # Title slide — use first slide keyword
-    first_keyword = slides[0].get("image_keyword", "business") if slides else "business"
-    build_title_slide(prs, title, theme, first_keyword)
-
-    # Content slides with rotating layouts
-    content_slides = slides[1:-1] if len(slides) > 2 else slides
-    for idx, slide in enumerate(content_slides):
-        heading = slide.get("heading", "")
-        bullets = slide.get("bullets", [])
-        keyword = slide.get("image_keyword", "business")
-        layout_fn = LAYOUTS[idx % len(LAYOUTS)]
-        layout_fn(prs, heading, bullets, theme, keyword)
-
-    # Thank you
-    build_thankyou_slide(prs, theme)
-
-    filename = f"slidebot_{uuid.uuid4().hex[:8]}.pptx"
-    filepath = os.path.join("outputs", filename)
-    os.makedirs("outputs", exist_ok=True)
-    prs.save(filepath)
-
-    return filepath
+    for bullet in col1[:5]:
+        add_circle(slide,
