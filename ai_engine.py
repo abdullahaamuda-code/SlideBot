@@ -1,6 +1,5 @@
 import os
 import json
-import re
 from dotenv import load_dotenv
 from google import genai
 from groq import Groq
@@ -11,38 +10,48 @@ gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 PROMPT_TEMPLATE = """
-You are a professional presentation designer.
-Generate structured slide content based on the user's input.
+You are a world-class presentation designer and storyteller.
+Your job is to create engaging, insightful, and creative slide content — NOT generic filler.
 
-User input: {user_input}
-Number of slides: {num_slides}
+User input / document content:
+\"\"\"
+{user_input}
+\"\"\"
 
-Respond ONLY with a JSON object exactly like this, nothing else, no markdown:
+Number of slides to generate: {num_slides}
+
+IMPORTANT: Read the ENTIRE content above carefully. The slides MUST be about the actual subject matter of what was provided — not about generic topics like "communication" or "introductions" unless the document is literally about those things.
+
+Respond ONLY with a JSON object exactly like this format, nothing else, no markdown:
 {{
-    "title": "Presentation Title",
+    "title": "A Creative, Specific Title About The Actual Topic",
     "slides": [
         {{
             "slide_number": 1,
-            "heading": "Slide Title Here",
-            "image_keyword": "relevant single word for image",
+            "heading": "Introduction to [Actual Topic From Content]",
+            "description": "1-2 sentence overview of what this presentation covers and why it matters.",
+            "image_keyword": "relevant single English noun",
             "bullets": [
-                "First key point",
-                "Second key point",
-                "Third key point",
-                "Fourth key point"
+                "Specific insight from the content",
+                "Another specific insight",
+                "Why this topic is important",
+                "What the audience will learn"
             ]
         }}
     ]
 }}
 
-Rules:
-- First slide is always the intro/title slide
-- Last slide is always a real summary: concise recap of the most important ideas
-- Each slide MUST have between 4 and 5 bullet points, never fewer than 4
-- Bullet points must be short and punchy
-- image_keyword must be a single simple English noun relevant to the slide topic
-- Make it professional and engaging
-- Do not include any explanations, markdown, comments, or extra text outside the JSON object
+Strict Rules:
+- READ THE FULL CONTENT — do not just use the first paragraph or heading
+- Slides MUST reflect the actual subject matter (food security, research, science, etc.) — never drift into generic topics
+- First slide MUST be the introduction with a "description" field (1-2 sentences)
+- Last slide MUST be "Conclusion & Key Takeaways" with a "description" field (1-2 sentences)
+- Middle slides do NOT need a description field
+- Each slide MUST have exactly 4-5 bullet points — specific, punchy, insightful
+- Bullet points should feel fresh and intelligent — avoid clichés like "leveraging synergies" or "best practices"
+- image_keyword must be a single simple English noun that fits the slide topic visually
+- Be creative with headings — make them catchy and specific, not generic
+- Do not include any explanations, markdown, comments, or extra text outside the JSON
 """
 
 def clean_json(text: str) -> str:
@@ -52,7 +61,6 @@ def clean_json(text: str) -> str:
     
     text = text.strip()
     
-    # Remove markdown code blocks
     if "```json" in text:
         parts = text.split("```json")
         if len(parts) > 1:
@@ -62,7 +70,6 @@ def clean_json(text: str) -> str:
     
     text = text.strip()
     
-    # Find first { and last }
     start = text.find("{")
     end = text.rfind("}")
     
@@ -71,8 +78,8 @@ def clean_json(text: str) -> str:
     
     return text
 
-def enforce_summary_and_bullets(struct: dict) -> dict:
-    """Ensure each slide has 4-5 bullets and last slide is a proper summary"""
+def enforce_summary_and_bullets(struct: dict, topic: str = "") -> dict:
+    """Ensure each slide has 4-5 bullets, first and last have descriptions"""
     if not struct or "slides" not in struct:
         return struct
     
@@ -80,30 +87,32 @@ def enforce_summary_and_bullets(struct: dict) -> dict:
     
     for slide in slides:
         bullets = slide.get("bullets", [])
-        
-        # Ensure between 4 and 5 bullets
         if len(bullets) < 4:
-            # Add placeholder bullets if needed
             while len(bullets) < 4:
-                bullets.append("Important key point to remember")
+                bullets.append("Key insight from the content")
         elif len(bullets) > 5:
             bullets = bullets[:5]
-        
         slide["bullets"] = bullets
     
-    # Ensure last slide is a proper summary
+    # Ensure last slide is conclusion with description
     if slides:
         last_slide = slides[-1]
-        # Make sure last slide has summary-like heading
-        if "conclusion" not in last_slide.get("heading", "").lower() and "summary" not in last_slide.get("heading", "").lower():
+        last_heading = last_slide.get("heading", "").lower()
+        if "conclusion" not in last_heading and "summary" not in last_heading and "takeaway" not in last_heading:
             last_slide["heading"] = "Conclusion & Key Takeaways"
-    
+        if not last_slide.get("description"):
+            last_slide["description"] = "A summary of the key ideas and actionable insights from this presentation."
+
+    # Ensure first slide has description
+    if slides and not slides[0].get("description"):
+        slides[0]["description"] = f"An overview of what this presentation covers and why it matters."
+
     struct["slides"] = slides
     return struct
 
 def generate_with_gemini(user_input: str, num_slides: int):
     try:
-        print(f"📡 Gemini: Generating for '{user_input[:50]}...'")
+        print(f"📡 Gemini: Generating for '{user_input[:80]}...'")
         prompt = PROMPT_TEMPLATE.format(
             user_input=user_input,
             num_slides=num_slides
@@ -118,14 +127,14 @@ def generate_with_gemini(user_input: str, num_slides: int):
             return None
         data = json.loads(text)
         print("✅ Gemini: Success")
-        return enforce_summary_and_bullets(data)
+        return enforce_summary_and_bullets(data, user_input[:100])
     except Exception as e:
         print(f"❌ Gemini failed: {e}")
         return None
 
 def generate_with_groq(user_input: str, num_slides: int):
     try:
-        print(f"📡 Groq: Generating for '{user_input[:50]}...'")
+        print(f"📡 Groq: Generating for '{user_input[:80]}...'")
         prompt = PROMPT_TEMPLATE.format(
             user_input=user_input,
             num_slides=num_slides
@@ -133,7 +142,7 @@ def generate_with_groq(user_input: str, num_slides: int):
         response = groq_client.chat.completions.create(
             model="llama-3.3-70b-versatile",
             messages=[{"role": "user", "content": prompt}],
-            temperature=0.7,
+            temperature=0.9,   # ✅ FIXED: was 0.7, now more creative
             max_tokens=4000
         )
         text = clean_json(response.choices[0].message.content)
@@ -142,13 +151,13 @@ def generate_with_groq(user_input: str, num_slides: int):
             return None
         data = json.loads(text)
         print("✅ Groq: Success")
-        return enforce_summary_and_bullets(data)
+        return enforce_summary_and_bullets(data, user_input[:100])
     except Exception as e:
         print(f"❌ Groq failed: {e}")
         return None
 
 def generate_slide_content(user_input: str, num_slides: int = 8):
-    print(f"\n🎨 Generating {num_slides} slides for: {user_input[:50]}...")
+    print(f"\n🎨 Generating {num_slides} slides for: {user_input[:80]}...")
     
     # Try Gemini first
     result = generate_with_gemini(user_input, num_slides)
@@ -168,92 +177,104 @@ def generate_slide_content(user_input: str, num_slides: int = 8):
     return fallback
 
 def generate_from_text(raw_text: str, num_slides: int = 8):
-    """Generate from extracted text"""
-    # Take first 200 chars as topic for generation
-    topic = raw_text[:200] if len(raw_text) > 200 else raw_text
+    """
+    Generate from extracted document text.
+    ✅ FIXED: Was only using first 200 chars — now sends up to 12,000 chars
+    so the AI actually understands the full document topic.
+    """
+    # Trim to 12,000 chars max (well within token limits) but keep the full context
+    topic = raw_text[:12000] if len(raw_text) > 12000 else raw_text
     return generate_slide_content(topic, num_slides)
 
 def generate_fallback_content(topic: str, num_slides: int) -> dict:
     """Fallback content if all AI calls fail"""
+    # Use first 100 chars as a label if topic is a long document
+    label = topic[:100].strip() if len(topic) > 100 else topic
+    
     slides = []
     for i in range(num_slides):
         if i == 0:
             slides.append({
                 "slide_number": 1,
-                "heading": f"Introduction to {topic[:50]}",
+                "heading": f"Introduction",
+                "description": f"This presentation explores the key themes and insights from the provided content.",
                 "image_keyword": "introduction",
                 "bullets": [
-                    f"What you need to know about {topic[:30]}",
-                    "Key challenges and opportunities",
-                    "Why this matters today",
-                    "What you'll learn from this presentation"
+                    "Overview of the main subject matter",
+                    "Key challenges and opportunities discussed",
+                    "Why this topic is important today",
+                    "What you will learn from this presentation"
                 ]
             })
         elif i == num_slides - 1:
             slides.append({
                 "slide_number": num_slides,
                 "heading": "Conclusion & Key Takeaways",
+                "description": "A recap of the most important insights and recommended next steps.",
                 "image_keyword": "success",
                 "bullets": [
                     "Review of the main concepts discussed",
-                    "Key insights to remember",
-                    "Actionable steps to take",
+                    "Key insights to remember and apply",
+                    "Actionable steps to take next",
                     "Resources for further learning"
                 ]
             })
         else:
             slides.append({
                 "slide_number": i + 1,
-                "heading": f"Key Insight {i}",
-                "image_keyword": "business",
+                "heading": f"Key Theme {i}",
+                "image_keyword": "research",
                 "bullets": [
-                    "Important factor to consider",
-                    "Strategy that drives results",
-                    "Common pitfall to avoid",
-                    "Best practice to follow"
+                    "Important factor highlighted in the content",
+                    "Evidence or data supporting this point",
+                    "Real-world implications to consider",
+                    "Recommended approach or solution"
                 ]
             })
     
     return {
-        "title": f"Understanding {topic[:50]}",
+        "title": f"Presentation Summary",
         "slides": slides
     }
 
 def ensure_intro_and_conclusion(slide_data: dict, topic: str, num_slides: int) -> dict:
-    """Force intro and conclusion slides to exist"""
+    """Force intro and conclusion slides to exist with proper descriptions"""
     
     slides = slide_data.get("slides", [])
-    
-    # Check if first slide is intro (contains Intro/Introduction/Overview)
+    label = topic[:80].strip() if len(topic) > 80 else topic
+
+    # Check if first slide is intro
     if slides:
         first_heading = slides[0].get("heading", "").lower()
         is_intro = any(word in first_heading for word in ["intro", "introduction", "overview", "welcome"])
         
         if not is_intro:
-            # Insert intro slide at beginning
             intro_slide = {
-                "heading": f"Introduction to {topic}",
-                "explanation": f"This presentation explores {topic} and why it matters today. You'll learn key concepts and actionable insights.",
+                "heading": "Introduction",
+                "description": f"This presentation explores the key themes and insights from the provided content.",
                 "bullets": [
-                    f"What is {topic} and why it's important",
+                    "Overview of the subject matter",
                     "Key challenges and opportunities",
-                    "What you'll learn from this presentation",
+                    "What you will learn from this presentation",
                     "Real-world applications and examples"
                 ],
                 "image_keyword": "introduction"
             }
             slides.insert(0, intro_slide)
-    
+        else:
+            # Make sure existing intro has a description
+            if not slides[0].get("description"):
+                slides[0]["description"] = "An overview of the key themes and insights this presentation covers."
+
     # Check if last slide is conclusion
     if slides:
         last_heading = slides[-1].get("heading", "").lower()
         is_conclusion = any(word in last_heading for word in ["conclusion", "summary", "key takeaways", "closing"])
         
         if not is_conclusion:
-            # Add conclusion slide at end
             conclusion_slide = {
                 "heading": "Conclusion & Key Takeaways",
-                "explanation": f"In conclusion, {topic} offers significant opportunities. By applying these insights, you can achieve better results.",
+                "description": "A recap of the most important insights and actionable next steps from this presentation.",
                 "bullets": [
                     "Review of main concepts discussed",
                     "Key insights to remember and apply",
@@ -263,24 +284,30 @@ def ensure_intro_and_conclusion(slide_data: dict, topic: str, num_slides: int) -
                 "image_keyword": "success"
             }
             slides.append(conclusion_slide)
-    
-    # Ensure we have exactly num_slides slides (trim or pad)
+        else:
+            # Make sure existing conclusion has a description
+            if not slides[-1].get("description"):
+                slides[-1]["description"] = "A summary of key insights and recommended next steps."
+
+    # Trim or pad to hit exact num_slides
     if len(slides) > num_slides:
-        slides = slides[:num_slides]
+        # Always keep first and last, trim from the middle
+        middle = slides[1:-1]
+        keep = num_slides - 2
+        middle = middle[:keep]
+        slides = [slides[0]] + middle + [slides[-1]]
     elif len(slides) < num_slides:
-        # Add filler content slides if needed
         while len(slides) < num_slides:
-            slides.append({
+            slides.insert(-1, {
                 "heading": f"Key Insight {len(slides)}",
-                "explanation": f"This section explores additional important aspects of {topic}.",
+                "image_keyword": "research",
                 "bullets": [
                     "Important factor to consider",
-                    "Strategy that drives results",
-                    "Common pitfall to avoid",
-                    "Best practice to follow"
-                ],
-                "image_keyword": "business"
+                    "Evidence supporting this point",
+                    "Real-world implications",
+                    "Recommended approach"
+                ]
             })
-    
+
     slide_data["slides"] = slides
     return slide_data
