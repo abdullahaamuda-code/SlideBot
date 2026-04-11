@@ -20,7 +20,7 @@ from database import (
     get_premium_users, get_total_stats,
     can_use_url, can_use_file,
     increment_url_usage, increment_file_usage,
-    get_user_theme, save_user_theme, get_today_usage  # ADD THIS LINE
+    get_user_theme, save_user_theme, get_today_usage
 )
 
 load_dotenv()
@@ -40,14 +40,12 @@ def get_theme_keyboard(user_id: str, current_theme=None):
     premium = is_premium(user_id)
     keyboard = []
     
-    # Free themes row
     row1 = []
     for t in FREE_THEMES:
         label = f"✅ {t.title()}" if current_theme == t else t.title()
         row1.append(InlineKeyboardButton(label, callback_data=f"theme_{t}"))
     keyboard.append(row1)
     
-    # Premium themes rows
     row2 = []
     for theme in PREMIUM_THEMES[:2]:
         if premium:
@@ -88,7 +86,7 @@ def get_slide_count_keyboard(user_id: str):
     return InlineKeyboardMarkup(keyboard)
 
 
-# ─── GUIDED FLOW WITH BETTER UX ──────────────────────────────────
+# ─── GUIDED FLOW ──────────────────────────────────────────────────
 async def ask_for_slide_count(update: Update, context: ContextTypes.DEFAULT_TYPE, message=None):
     msg = message or update.message
     await msg.reply_text(
@@ -105,11 +103,10 @@ async def slide_count_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data["pending_slides"] = num_slides
     uid = str(query.from_user.id)
     
-    # 🔥 ALWAYS ask for theme - never auto-generate
     await query.edit_message_text(
         "🎨 **Great! Now pick your slide style**\n\n"
         "Each theme has unique colors and layouts:",
-        reply_markup=get_theme_keyboard(uid, None),  # Pass None for current theme
+        reply_markup=get_theme_keyboard(uid, None),
         parse_mode="Markdown"
     )
 
@@ -130,11 +127,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = str(user.id)
     get_or_create_user(uid, str(user.username or user.first_name))
     
-    # 🔥 REMOVE the theme loading - don't pre-set it
-    # Just get the saved theme for display only
     from database import get_user_theme
     saved_theme = get_user_theme(uid)
-    # DON'T set context.user_data["theme"] here
     
     keyboard = [
         [InlineKeyboardButton("📖 How to use", callback_data="show_help")],
@@ -156,22 +150,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 async def change_theme_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle change theme button callback - sends NEW message instead of editing"""
     query = update.callback_query
     await query.answer()
     uid = str(query.from_user.id)
     from database import get_user_theme
     current = get_user_theme(uid)
     
-    # Get the theme keyboard
     keyboard = get_theme_keyboard(uid, current)
-    
-    # ADDED: Convert to list and add Back button at the bottom
     keyboard_list = keyboard.inline_keyboard
     back_button = [[InlineKeyboardButton("◀️ Back to Menu", callback_data="back_to_start")]]
     new_keyboard = InlineKeyboardMarkup(keyboard_list + back_button)
     
-    # 🔥 FIX: Send a NEW message instead of trying to edit the old one
     await query.message.reply_text(
         f"🎨 **Choose your slide style**\n\nCurrent: **{current.title()}**\n\n"
         f"{'🔓 All themes unlocked!' if is_premium(uid) else '🔒 Premium themes require upgrade'}",
@@ -179,7 +168,6 @@ async def change_theme_callback(update: Update, context: ContextTypes.DEFAULT_TY
         parse_mode="Markdown"
     )
     
-    # Optional: Delete the previous message to keep chat clean
     try:
         await query.message.delete()
     except:
@@ -209,7 +197,6 @@ async def help_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         help_text += "📊 **Your plan: Free**\n• 2 decks/day\n• Up to 8 slides\n• Classic & Dark themes\n\nType /upgrade for unlimited! 💎"
     
-    # 🔥 FIX: Add Back button
     keyboard = [[InlineKeyboardButton("◀️ Back to Menu", callback_data="back_to_start")]]
     await query.edit_message_text(help_text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
@@ -217,7 +204,6 @@ async def show_upgrade_callback(update: Update, context: ContextTypes.DEFAULT_TY
     query = update.callback_query
     await query.answer()
     
-    # ADDED: Back button
     keyboard = [[InlineKeyboardButton("◀️ Back to Menu", callback_data="back_to_start")]]
     
     await query.edit_message_text(
@@ -239,8 +225,8 @@ async def show_upgrade_callback(update: Update, context: ContextTypes.DEFAULT_TY
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
+
 async def back_to_start_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle back button - returns to main menu"""
     query = update.callback_query
     await query.answer()
     
@@ -248,11 +234,9 @@ async def back_to_start_callback(update: Update, context: ContextTypes.DEFAULT_T
     from database import get_user_theme
     saved_theme = get_user_theme(uid)
     
-    # Clear any pending data
     context.user_data.clear()
     context.user_data["theme"] = saved_theme
     
-    # Main welcome keyboard - same as /start
     keyboard = [
         [InlineKeyboardButton("📖 How to use", callback_data="show_help")],
         [InlineKeyboardButton("💎 Upgrade to Premium", callback_data="show_upgrade")],
@@ -269,7 +253,6 @@ async def back_to_start_callback(update: Update, context: ContextTypes.DEFAULT_T
     )
 
 async def show_status_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle status button callback"""
     query = update.callback_query
     await query.answer()
     uid = str(query.from_user.id)
@@ -293,6 +276,7 @@ async def show_status_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
+
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     uid = str(user.id)
@@ -338,7 +322,6 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     plan = "💎 Premium" if premium else "📊 Free"
     limit_text = "Unlimited" if premium else "2 per day"
     
-    # Get today's usage
     from database import get_today_usage
     used_today = get_today_usage(uid)
     remaining = "Unlimited" if premium else max(0, 2 - used_today)
@@ -398,7 +381,7 @@ async def paid_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ─── ADMIN COMMANDS (FIXED) ───────────────────────────────────────
+# ─── ADMIN COMMANDS ───────────────────────────────────────────────
 async def activate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     if not is_admin(str(user.id)):
@@ -407,8 +390,7 @@ async def activate_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if not context.args:
         await update.message.reply_text(
-            "Usage: /activate <telegram_id>\n\n"
-            "Example: /activate 123456789",
+            "Usage: /activate <telegram_id>\n\nExample: /activate 123456789",
             parse_mode="Markdown"
         )
         return
@@ -488,14 +470,13 @@ async def premiumlist_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     await update.message.reply_text(msg, parse_mode="Markdown")
 
 
-# ─── THEME CALLBACK (FIXED - saves theme) ─────────────────────────
+# ─── THEME CALLBACK ───────────────────────────────────────────────
 async def theme_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     uid = str(query.from_user.id)
     theme_name = query.data.replace("theme_", "")
     
-    # Check premium restriction
     if theme_name in PREMIUM_THEMES and not is_premium(uid):
         keyboard = [[InlineKeyboardButton("◀️ Back to Menu", callback_data="back_to_start")]]
         await query.edit_message_text(
@@ -507,19 +488,16 @@ async def theme_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # Save the selected theme
     context.user_data["theme"] = theme_name
     save_user_theme(uid, theme_name)
     
-    # 🔥 FIX: If there's a pending generation, continue; otherwise show success
     if "pending_topic" in context.user_data and "pending_slides" in context.user_data:
         topic = context.user_data.pop("pending_topic")
         num_slides = context.user_data.pop("pending_slides")
         raw_text = context.user_data.pop("pending_raw_text", None)
-        await query.edit_message_text(f"✅ Theme: **{theme_name.title()}** applied!\n\n🎯 Generating your {num_slides}-slide deck...")
+        await query.edit_message_text(f"✅ Theme: **{theme_name.title()}** applied!\n\n🎯 Generating your {num_slides}-slide deck...", parse_mode="Markdown")
         await start_generation(query, context, topic, num_slides, theme_name, raw_text=raw_text)
     else:
-        # 🔥 FIX: Show success and return to main menu
         keyboard = [[InlineKeyboardButton("◀️ Back to Menu", callback_data="back_to_start")]]
         await query.edit_message_text(
             f"✅ **Theme saved: {theme_name.title()}**\n\n"
@@ -529,43 +507,57 @@ async def theme_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
 
+
 # ─── CORE GENERATION ──────────────────────────────────────────────
 async def start_generation(query, context, topic, num_slides, theme, raw_text=None):
     uid = str(query.from_user.id)
     premium = is_premium(uid)
     
-    await query.edit_message_text("🎨 **Creating your presentation...**\n\n"
-                                  "• Structuring content 📝\n"
-                                  "• Designing layouts 🎨\n"
-                                  "• Adding images 🖼️\n\n"
-                                  "This may take 20-30 seconds...",
-                                  parse_mode="Markdown")
+    await query.edit_message_text(
+        "🎨 **Creating your presentation...**\n\n"
+        "• Structuring content 📝\n"
+        "• Designing layouts 🎨\n"
+        "• Adding images 🖼️\n\n"
+        "This may take 20-40 seconds...",
+        parse_mode="Markdown"
+    )
+
     try:
         loop = asyncio.get_event_loop()
+
         if raw_text:
             slide_data = await asyncio.wait_for(
                 loop.run_in_executor(None, generate_from_text, raw_text, num_slides),
-                timeout=120
+                timeout=180  # ✅ FIXED: was 120, increased for large docs
             )
         else:
             slide_data = await asyncio.wait_for(
                 loop.run_in_executor(None, generate_slide_content, topic, num_slides),
                 timeout=120
             )
-        if not slide_data:
-            await query.edit_message_text("❌ Something went wrong with the AI. Please try again.")
+
+        if not slide_data or "slides" not in slide_data:
+            await query.edit_message_text(
+                "❌ **The AI couldn't generate slides for this content.**\n\n"
+                "This can happen with very long or complex documents.\n"
+                "Try uploading a shorter document or typing the topic directly.",
+                parse_mode="Markdown"
+            )
             return
-        
-        await query.edit_message_text("📐 **Almost done!** Designing your slides with premium layouts...", parse_mode="Markdown")
-        
+
+        await query.edit_message_text(
+            "📐 **Almost done!** Designing your slides...",
+            parse_mode="Markdown"
+        )
+
         filepath = await loop.run_in_executor(
             None, build_presentation, slide_data, theme, premium
         )
-        
+
         increment_usage(uid)
-        
+
         await query.edit_message_text("✅ **Done! Sending your file now...**", parse_mode="Markdown")
-        
+
         with open(filepath, "rb") as f:
             await context.bot.send_document(
                 chat_id=query.message.chat_id,
@@ -576,18 +568,28 @@ async def start_generation(query, context, topic, num_slides, theme, raw_text=No
                     f"📌 **Title:** {slide_data.get('title', '')}\n"
                     f"🎨 **Theme:** {theme.title()}\n"
                     f"📊 **Slides:** {num_slides}\n\n"
-                    f"{'💎 **Premium** — Unlimited generations!' if premium else '📊 **Free plan** — 2/day remaining. Type /upgrade for unlimited! 💎'}"
+                    f"{'💎 **Premium** — Unlimited generations!' if premium else '📊 **Free plan** — Type /upgrade for unlimited! 💎'}"
                 ),
                 parse_mode="Markdown"
             )
-        
+
         os.remove(filepath)
-        
+
     except asyncio.TimeoutError:
-        await query.edit_message_text("⏰ **Taking too long** — please try a simpler topic or fewer slides.", parse_mode="Markdown")
+        await query.edit_message_text(
+            "⏰ **This is taking too long.**\n\n"
+            "Your document might be too large. Try:\n"
+            "• Uploading a shorter document\n"
+            "• Typing the topic directly instead",
+            parse_mode="Markdown"
+        )
     except Exception as e:
-        logger.error(f"Generation error: {e}")
-        await query.edit_message_text("❌ **Something went wrong.** Please try again or contact support.", parse_mode="Markdown")
+        logger.error(f"Generation error: {e}", exc_info=True)
+        await query.edit_message_text(
+            "❌ **Something went wrong generating your slides.**\n\n"
+            "Please try again. If the issue persists, try typing the topic directly instead of uploading a file.",
+            parse_mode="Markdown"
+        )
 
 
 # ─── MESSAGE HANDLER ──────────────────────────────────────────────
@@ -598,7 +600,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     get_or_create_user(uid, str(user.username or user.first_name))
 
     context.user_data.pop("theme", None)
-    # URL detection
+
     if text.startswith("http://") or text.startswith("https://"):
         if not can_use_url(uid):
             await update.message.reply_text(
@@ -612,7 +614,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await handle_url(update, context, text)
         return
 
-    # Check daily limit
     if not can_generate(uid):
         await update.message.reply_text(
             "📊 **Daily limit reached**\n\n"
@@ -626,7 +627,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             parse_mode="Markdown"
         )
         return
-    
+
     context.user_data["pending_topic"] = text
     await ask_for_slide_count(update, context)
 
@@ -637,9 +638,7 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE, url: st
     await update.message.reply_text("🔍 **Extracting content from your link...**", parse_mode="Markdown")
     try:
         loop = asyncio.get_event_loop()
-        downloaded = await loop.run_in_executor(
-            None, trafilatura.fetch_url, url
-        )
+        downloaded = await loop.run_in_executor(None, trafilatura.fetch_url, url)
         if not downloaded:
             await update.message.reply_text("❌ Couldn't fetch that URL. Try another link.")
             return
@@ -647,9 +646,12 @@ async def handle_url(update: Update, context: ContextTypes.DEFAULT_TYPE, url: st
         if not text or len(text) < 100:
             await update.message.reply_text("❌ Couldn't extract enough content from that page.")
             return
+
         increment_url_usage(uid)
         context.user_data["pending_topic"] = url
-        context.user_data["pending_raw_text"] = text[:8000]
+        # ✅ FIXED: was [:8000], now [:12000] to match ai_engine capacity
+        context.user_data["pending_raw_text"] = text[:12000]
+
         await update.message.reply_text(
             f"✅ **Content extracted!** ({len(text)} characters)\n\n"
             "📊 **How many slides do you want?**",
@@ -691,7 +693,10 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    await update.message.reply_text("📖 **Reading your file...**", parse_mode="Markdown")
+    await update.message.reply_text(
+        "📖 **Reading your file...**\n\nThis may take a moment for large documents.",
+        parse_mode="Markdown"
+    )
 
     try:
         file = await context.bot.get_file(doc.file_id)
@@ -705,12 +710,17 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text = await loop.run_in_executor(None, extract_docx_text, file_stream)
 
         if not text or len(text) < 100:
-            await update.message.reply_text("❌ Couldn't extract enough text from that file.")
+            await update.message.reply_text(
+                "❌ **Couldn't extract enough text from that file.**\n\n"
+                "Make sure the file contains readable text (not just images).",
+                parse_mode="Markdown"
+            )
             return
 
         increment_file_usage(uid)
         context.user_data["pending_topic"] = filename
-        context.user_data["pending_raw_text"] = text[:8000]
+        # ✅ FIXED: was [:8000] — now [:12000] so AI gets the full document context
+        context.user_data["pending_raw_text"] = text[:12000]
 
         await update.message.reply_text(
             f"✅ **File processed!** ({len(text)} characters extracted)\n\n"
@@ -718,9 +728,14 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=get_slide_count_keyboard(uid),
             parse_mode="Markdown"
         )
+
     except Exception as e:
-        logger.error(f"File error: {e}")
-        await update.message.reply_text("❌ Something went wrong reading that file. Try again.")
+        logger.error(f"File processing error: {e}", exc_info=True)
+        await update.message.reply_text(
+            "❌ **Something went wrong reading that file.**\n\n"
+            "Please make sure it's a valid PDF or Word document and try again.",
+            parse_mode="Markdown"
+        )
 
 
 def extract_pdf_text(file_stream) -> str:
@@ -732,7 +747,7 @@ def extract_pdf_text(file_stream) -> str:
             text += page.get_text()
         return text.strip()
     except Exception as e:
-        print(f"PDF extract error: {e}")
+        logger.error(f"PDF extract error: {e}")
         return ""
 
 def extract_docx_text(file_stream) -> str:
@@ -742,7 +757,7 @@ def extract_docx_text(file_stream) -> str:
         text = "\n".join([para.text for para in doc.paragraphs if para.text.strip()])
         return text.strip()
     except Exception as e:
-        print(f"DOCX extract error: {e}")
+        logger.error(f"DOCX extract error: {e}")
         return ""
 
 
@@ -811,10 +826,9 @@ async def main():
     app.add_handler(CallbackQueryHandler(theme_callback, pattern="^theme_"))
     app.add_handler(CallbackQueryHandler(cancel_callback, pattern="^cancel$"))
     app.add_handler(CallbackQueryHandler(help_callback, pattern="^show_help$"))
-   #  app.add_handler(CallbackQueryHandler(change_theme_callback, pattern="^change_theme$"))
     app.add_handler(CallbackQueryHandler(show_upgrade_callback, pattern="^show_upgrade$"))
-    app.add_handler(CallbackQueryHandler(back_to_start_callback, pattern="^back_to_start$"))  # ADD THIS
-    app.add_handler(CallbackQueryHandler(show_status_callback, pattern="^show_status$"))       # ADD THIS
+    app.add_handler(CallbackQueryHandler(back_to_start_callback, pattern="^back_to_start$"))
+    app.add_handler(CallbackQueryHandler(show_status_callback, pattern="^show_status$"))
 
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
