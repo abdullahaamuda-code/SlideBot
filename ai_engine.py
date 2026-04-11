@@ -1,9 +1,12 @@
 import os
 import json
+import time
+from typing import Optional
+
 from dotenv import load_dotenv
 from google import genai
 from groq import Groq
-from mistralai import Mistral
+from mistralai.client import Mistral  # ✅ correct import
 
 load_dotenv()
 
@@ -56,6 +59,8 @@ Strict Rules:
 - Do not include any explanations, markdown, comments, or extra text outside the JSON
 """
 
+# ---------- Helpers ----------
+
 def clean_json(text: str) -> str:
     """Clean JSON response from AI"""
     if not text:
@@ -88,7 +93,7 @@ def enforce_summary_and_bullets(struct: dict, topic: str = "") -> dict:
     slides = struct.get("slides", [])
 
     for slide in slides:
-        bullets = slide.get("bullets", [])
+        bullets = slide.get("bullets", []) or []
         if len(bullets) < 4:
             while len(bullets) < 4:
                 bullets.append("Key insight from the content")
@@ -99,11 +104,17 @@ def enforce_summary_and_bullets(struct: dict, topic: str = "") -> dict:
     # Ensure last slide is conclusion with description
     if slides:
         last_slide = slides[-1]
-        last_heading = last_slide.get("heading", "").lower()
-        if "conclusion" not in last_heading and "summary" not in last_heading and "takeaway" not in last_heading:
+        last_heading = (last_slide.get("heading") or "").lower()
+        if (
+            "conclusion" not in last_heading
+            and "summary" not in last_heading
+            and "takeaway" not in last_heading
+        ):
             last_slide["heading"] = "Conclusion & Key Takeaways"
         if not last_slide.get("description"):
-            last_slide["description"] = "A summary of the key ideas and actionable insights from this presentation."
+            last_slide["description"] = (
+                "A summary of the key ideas and actionable insights from this presentation."
+            )
 
     # Ensure first slide has description
     if slides and not slides[0].get("description"):
@@ -114,80 +125,101 @@ def enforce_summary_and_bullets(struct: dict, topic: str = "") -> dict:
     struct["slides"] = slides
     return struct
 
-def generate_with_groq(user_input: str, num_slides: int):
-    try:
-        print(f"📡 Groq: Generating for '{user_input[:80]}...'")
-        prompt = PROMPT_TEMPLATE.format(
-            user_input=user_input,
-            num_slides=num_slides
-        )
-        response = groq_client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.9,   # creative
-            max_tokens=4000
-        )
-        text = clean_json(response.choices[0].message.content)
-        if not text:
-            print("❌ Groq: Empty response after cleaning")
-            return None
-        data = json.loads(text)
-        print("✅ Groq: Success")
-        return enforce_summary_and_bullets(data, user_input[:100])
-    except Exception as e:
-        print(f"❌ Groq failed: {e}")
-        return None
+def _retry_delay(attempt: int, base: float = 1.0, max_delay: float = 8.0) -> float:
+    delay = min(base * (2 ** (attempt - 1)), max_delay)
+    return delay
 
-def generate_with_mistral(user_input: str, num_slides: int):
-    try:
-        print(f"📡 Mistral: Generating for '{user_input[:80]}...'")
-        prompt = PROMPT_TEMPLATE.format(
-            user_input=user_input,
-            num_slides=num_slides
-        )
-        response = mistral_client.chat.complete(
-            model="mistral-large-latest",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.9,
-            max_tokens=4000,
-        )
-        text = clean_json(response.choices[0].message.content)
-        if not text:
-            print("❌ Mistral: Empty response after cleaning")
-            return None
-        data = json.loads(text)
-        print("✅ Mistral: Success")
-        return enforce_summary_and_bullets(data, user_input[:100])
-    except Exception as e:
-        print(f"❌ Mistral failed: {e}")
-        return None
+# ---------- Provider calls with 429 retry + logging ----------
 
-def generate_with_gemini(user_input: str, num_slides: int):
-    try:
-        print(f"📡 Gemini: Generating for '{user_input[:80]}...'")
-        prompt = PROMPT_TEMPLATE.format(
-            user_input=user_input,
-            num_slides=num_slides
-        )
-        response = gemini_client.models.generate_content(
-            model="gemini-2.0-flash",
-            contents=prompt
-        )
-        text = clean_json(response.text)
-        if not text:
-            print("❌ Gemini: Empty response after cleaning")
+def generate_with_groq(user_input: str, num_slides: int, max_retries: int = 3) -> Optional[dict]:
+    prompt = PROMPT_TEMPLATE.format(user_input=user_input, num_slides=num_slides)
+    for attempt in range(1, max_retries + 1):
+        try:
+            print(f"📡 [Groq] Attempt {attempt}: llama-3.3-70b-versatile")
+            response = groq_client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.9,
+                max_tokens=4000,
+            )
+            text = clean_json(response.choices[0].message.content)
+            if not text:
+                print("❌ [Groq] Empty response after cleaning")
+                return None
+            data = json.loads(text)
+            print("✅ [Groq] Success")
+            return enforce_summary_and_bullets(data, user_input[:100])
+        except Exception as e:
+            msg = str(e)
+            print(f"❌ [Groq] Error: {msg}")
+            if "429" in msg and attempt < max_retries:
+                delay = _retry_delay(attempt)
+                print(f"⏳ [Groq] Rate limited (429). Retrying in {delay:.1f}s...")
+                time.sleep(delay)
+                continue
+            print("🚫 [Groq] Giving up.")
             return None
-        data = json.loads(text)
-        print("✅ Gemini: Success")
-        return enforce_summary_and_bullets(data, user_input[:100])
-    except Exception as e:
-        print(f"❌ Gemini failed: {e}")
-        return None
+
+def generate_with_mistral(user_input: str, num_slides: int, max_retries: int = 3) -> Optional[dict]:
+    prompt = PROMPT_TEMPLATE.format(user_input=user_input, num_slides=num_slides)
+    for attempt in range(1, max_retries + 1):
+        try:
+            print(f"📡 [Mistral] Attempt {attempt}: mistral-large-latest")
+            response = mistral_client.chat.complete(
+                model="mistral-large-latest",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.9,
+                max_tokens=4000,
+            )
+            text = clean_json(response.choices[0].message.content)
+            if not text:
+                print("❌ [Mistral] Empty response after cleaning")
+                return None
+            data = json.loads(text)
+            print("✅ [Mistral] Success")
+            return enforce_summary_and_bullets(data, user_input[:100])
+        except Exception as e:
+            msg = str(e)
+            print(f"❌ [Mistral] Error: {msg}")
+            if "429" in msg and attempt < max_retries:
+                delay = _retry_delay(attempt)
+                print(f"⏳ [Mistral] Rate limited (429). Retrying in {delay:.1f}s...")
+                time.sleep(delay)
+                continue
+            print("🚫 [Mistral] Giving up.")
+            return None
+
+def generate_with_gemini(user_input: str, num_slides: int, max_retries: int = 3) -> Optional[dict]:
+    prompt = PROMPT_TEMPLATE.format(user_input=user_input, num_slides=num_slides)
+    for attempt in range(1, max_retries + 1):
+        try:
+            print(f"📡 [Gemini] Attempt {attempt}: gemini-2.0-flash")
+            response = gemini_client.models.generate_content(
+                model="gemini-2.0-flash",
+                contents=prompt,
+            )
+            text = clean_json(response.text)
+            if not text:
+                print("❌ [Gemini] Empty response after cleaning")
+                return None
+            data = json.loads(text)
+            print("✅ [Gemini] Success")
+            return enforce_summary_and_bullets(data, user_input[:100])
+        except Exception as e:
+            msg = str(e)
+            print(f"❌ [Gemini] Error: {msg}")
+            if "429" in msg and attempt < max_retries:
+                delay = _retry_delay(attempt)
+                print(f"⏳ [Gemini] Rate limited (429). Retrying in {delay:.1f}s...")
+                time.sleep(delay)
+                continue
+            print("🚫 [Gemini] Giving up.")
+            return None
+
+# ---------- Fallback + structure enforcement ----------
 
 def generate_fallback_content(topic: str, num_slides: int) -> dict:
     """Fallback content if all AI calls fail"""
-    label = topic[:100].strip() if len(topic) > 100 else topic
-
     slides = []
     for i in range(num_slides):
         if i == 0:
@@ -237,15 +269,15 @@ def generate_fallback_content(topic: str, num_slides: int) -> dict:
 def ensure_intro_and_conclusion(slide_data: dict, topic: str, num_slides: int) -> dict:
     """Force intro and conclusion slides to exist with proper descriptions"""
     slides = slide_data.get("slides", [])
-    label = topic[:80].strip() if len(topic) > 80 else topic
 
-    # Check if first slide is intro
+    # First slide intro
     if slides:
-        first_heading = slides[0].get("heading", "").lower()
+        first_heading = (slides[0].get("heading") or "").lower()
         is_intro = any(word in first_heading for word in ["intro", "introduction", "overview", "welcome"])
 
         if not is_intro:
             intro_slide = {
+                "slide_number": 1,
                 "heading": "Introduction",
                 "description": "This presentation explores the key themes and insights from the provided content.",
                 "bullets": [
@@ -258,17 +290,17 @@ def ensure_intro_and_conclusion(slide_data: dict, topic: str, num_slides: int) -
             }
             slides.insert(0, intro_slide)
         else:
-            # Make sure existing intro has a description
             if not slides[0].get("description"):
                 slides[0]["description"] = "An overview of the key themes and insights this presentation covers."
 
-    # Check if last slide is conclusion
+    # Last slide conclusion
     if slides:
-        last_heading = slides[-1].get("heading", "").lower()
+        last_heading = (slides[-1].get("heading") or "").lower()
         is_conclusion = any(word in last_heading for word in ["conclusion", "summary", "key takeaways", "closing"])
 
         if not is_conclusion:
             conclusion_slide = {
+                "slide_number": len(slides) + 1,
                 "heading": "Conclusion & Key Takeaways",
                 "description": "A recap of the most important insights and actionable next steps from this presentation.",
                 "bullets": [
@@ -281,60 +313,65 @@ def ensure_intro_and_conclusion(slide_data: dict, topic: str, num_slides: int) -
             }
             slides.append(conclusion_slide)
         else:
-            # Make sure existing conclusion has a description
             if not slides[-1].get("description"):
                 slides[-1]["description"] = "A summary of key insights and recommended next steps."
 
-    # Trim or pad to hit exact num_slides
+    # Trim / pad to exact num_slides (keep first & last)
     if len(slides) > num_slides:
-        # Always keep first and last, trim from the middle
         middle = slides[1:-1]
-        keep = num_slides - 2
+        keep = max(num_slides - 2, 0)
         middle = middle[:keep]
         slides = [slides[0]] + middle + [slides[-1]]
-    elif len(slides) < num_slides:
+    elif len(slides) < num_slides and len(slides) >= 2:
         while len(slides) < num_slides:
-            slides.insert(-1, {
-                "heading": f"Key Insight {len(slides)}",
-                "image_keyword": "research",
-                "bullets": [
-                    "Important factor to consider",
-                    "Evidence supporting this point",
-                    "Real-world implications",
-                    "Recommended approach"
-                ]
-            })
+            slides.insert(
+                -1,
+                {
+                    "heading": f"Key Insight {len(slides)}",
+                    "image_keyword": "research",
+                    "bullets": [
+                        "Important factor to consider",
+                        "Evidence supporting this point",
+                        "Real-world implications",
+                        "Recommended approach"
+                    ]
+                },
+            )
+
+    # Fix slide_number fields
+    for idx, slide in enumerate(slides, start=1):
+        slide["slide_number"] = idx
 
     slide_data["slides"] = slides
     return slide_data
 
-def generate_slide_content(user_input: str, num_slides: int = 8):
-    print(f"\n🎨 Generating {num_slides} slides for: {user_input[:80]}...")
+# ---------- Public API ----------
 
-    # 1️⃣ Try Groq first
+def generate_slide_content(user_input: str, num_slides: int = 8) -> dict:
+    print(f"\n🎨 Generating {num_slides} slides for: {user_input[:80]}...")
+    print("➡️ Order: Groq → Mistral → Gemini → Python fallback")
+
+    # 1️⃣ Groq
     result = generate_with_groq(user_input, num_slides)
     if result:
-        result = ensure_intro_and_conclusion(result, user_input, num_slides)
-        return result
+        return ensure_intro_and_conclusion(result, user_input, num_slides)
 
-    # 2️⃣ Then Mistral
+    # 2️⃣ Mistral
     result = generate_with_mistral(user_input, num_slides)
     if result:
-        result = ensure_intro_and_conclusion(result, user_input, num_slides)
-        return result
+        return ensure_intro_and_conclusion(result, user_input, num_slides)
 
-    # 3️⃣ Then Gemini
+    # 3️⃣ Gemini
     result = generate_with_gemini(user_input, num_slides)
     if result:
-        result = ensure_intro_and_conclusion(result, user_input, num_slides)
-        return result
+        return ensure_intro_and_conclusion(result, user_input, num_slides)
 
     # 4️⃣ Ultimate fallback
+    print("⚠️ All providers failed. Using Python fallback content.")
     fallback = generate_fallback_content(user_input, num_slides)
-    fallback = ensure_intro_and_conclusion(fallback, user_input, num_slides)
-    return fallback
+    return ensure_intro_and_conclusion(fallback, user_input, num_slides)
 
-def generate_from_text(raw_text: str, num_slides: int = 8):
+def generate_from_text(raw_text: str, num_slides: int = 8) -> dict:
     """
     Generate from extracted document text.
     Sends up to 12,000 chars so the AI actually understands the full document.
