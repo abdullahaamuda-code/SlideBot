@@ -741,7 +741,7 @@ def build_presentation(slide_data: dict, theme_name: str = "classic",
         )
 
     # ── Thank You
-   build_thankyou(prs, theme, is_premium=is_premium)
+    build_thankyou(prs, theme, is_premium=is_premium)
 
     filename = f"slidebot_{uuid.uuid4().hex[:8]}.pptx"
     filepath = os.path.join("outputs", filename)
