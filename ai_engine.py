@@ -379,7 +379,7 @@ def ensure_intro_and_conclusion(slide_data: dict, topic: str, num_slides: int) -
 
 # ---------- Public API ----------
 
-def generate_slide_content(user_input: str, num_slides: int = 8) -> dict:
+def generate_slide_content(user_input: str, num_slides: int = 8) -> Optional[dict]:
     print("=== [ENGINE] generate_slide_content called ===")
     print(f"[ENGINE] num_slides={num_slides}")
     print(f"[ENGINE] user_input_preview={user_input[:80]!r}")
@@ -406,12 +406,11 @@ def generate_slide_content(user_input: str, num_slides: int = 8) -> dict:
     if result:
         print("[ENGINE] RESULT: Gemini SUCCESS")
         return ensure_intro_and_conclusion(result, user_input, num_slides)
-    print("[ENGINE] RESULT: Gemini FAILED, using fallback")
+    print("[ENGINE] RESULT: Gemini FAILED")
 
-    # 4️⃣ Fallback
-    fallback = generate_fallback_content(user_input, num_slides)
-    print("[ENGINE] RESULT: Fallback used")
-    return ensure_intro_and_conclusion(fallback, user_input, num_slides)
+    # 4️⃣ No provider worked → signal hard fail
+    print("[ENGINE] RESULT: ALL PROVIDERS FAILED → returning None")
+    return None
 
 
 def generate_from_text(raw_text: str, num_slides: int = 8) -> dict:
