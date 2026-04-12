@@ -692,9 +692,33 @@ CONTENT_LAYOUTS = [
 ]
 
 
-def build_presentation(slide_data: dict, theme_name: str = "classic",
-                        is_premium: bool = False) -> str:
-    theme  = THEMES.get(theme_name, THEMES["classic"])
+def build_presentation(
+    slide_data: dict,
+    theme_name: str = "classic",
+    is_premium: bool = False,
+    accent_hex: str | None = None,
+) -> str:
+    # Start from base theme
+    theme = THEMES.get(theme_name, THEMES["classic"]).copy()
+
+    # Optional accent override (for premium)
+    if accent_hex:
+        try:
+            c = accent_hex.strip().lstrip("#")
+            if len(c) == 6:
+                color = RGBColor(int(c[0:2], 16),
+                                 int(c[2:4], 16),
+                                 int(c[4:6], 16))
+                theme["accent"] = color
+                # Optional: tweak accent_soft too (lighter version)
+                theme["accent_soft"] = RGBColor(
+                    min(color.rgb[0] + 80, 255),
+                    min(color.rgb[1] + 80, 255),
+                    min(color.rgb[2] + 80, 255),
+                )
+        except Exception as e:
+            print(f"Accent override error: {e}")
+
     slides = slide_data.get("slides", [])
     title  = slide_data.get("title", "My Presentation")
 
@@ -705,11 +729,11 @@ def build_presentation(slide_data: dict, theme_name: str = "classic",
     if not slides:
         slides = []
 
-    # ── Cover
+    # Cover
     cover_kw = slides[0].get("image_keyword", "abstract") if slides else "abstract"
     build_cover(prs, title, theme, cover_kw)
 
-    # ── Intro (first slide in data)
+    # Intro
     if slides:
         s0 = slides[0]
         build_intro(
@@ -721,14 +745,14 @@ def build_presentation(slide_data: dict, theme_name: str = "classic",
             s0.get("image_keyword", "teamwork"),
         )
 
-    # ── Content slides (everything except first and last)
+    # Content
     content = slides[1:-1] if len(slides) > 2 else []
     for idx, s in enumerate(content):
         fn = CONTENT_LAYOUTS[idx % len(CONTENT_LAYOUTS)]
         fn(prs, s.get("heading", ""), s.get("bullets", []),
            theme, s.get("image_keyword", "business"))
 
-    # ── Conclusion (last slide in data)
+    # Conclusion
     if len(slides) > 1:
         sl = slides[-1]
         build_conclusion(
@@ -740,7 +764,7 @@ def build_presentation(slide_data: dict, theme_name: str = "classic",
             sl.get("image_keyword", "success"),
         )
 
-    # ── Thank You
+    # Thank You
     build_thankyou(prs, theme, is_premium=is_premium)
 
     filename = f"slidebot_{uuid.uuid4().hex[:8]}.pptx"
@@ -749,3 +773,4 @@ def build_presentation(slide_data: dict, theme_name: str = "classic",
     prs.save(filepath)
     print(f"✅ Saved: {filepath}")
     return filepath
+
