@@ -773,8 +773,8 @@ async def start_generation(
         if premium and pack == "magazine":
             accent_hex = color or get_user_accent(uid) or "1E2761"
             filepath   = await loop.run_in_executor(
-                None, build_magazine, slide_data, accent_hex
-            )
+                None, build_magazine, slide_data, accent_hex, True
+        )
             pack_label = "Magazine 📰"
         else:
             # Executive pack uses slide_builder with theme + optional accent override
