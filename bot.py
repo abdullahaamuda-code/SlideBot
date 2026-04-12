@@ -759,6 +759,7 @@ async def start_generation(
         )
 
         # ── Build the file
+                # ── Build the file
         if premium and pack == "magazine":
             accent_hex = color or get_user_accent(uid) or "1E2761"
             filepath   = await loop.run_in_executor(
@@ -766,13 +767,20 @@ async def start_generation(
             )
             pack_label = "Magazine 📰"
         else:
-            # Executive pack uses slide_builder with theme
+            # Executive pack uses slide_builder with theme + optional accent override
             # For premium executive, default theme is "classic" unless saved
             exec_theme = theme if not premium else (get_user_theme(uid) or "classic")
-            filepath   = await loop.run_in_executor(
-                None, build_presentation, slide_data, exec_theme, premium
+
+            # For premium, use chosen color (inline picker) or saved accent
+            accent_hex = None
+            if premium:
+                accent_hex = color or get_user_accent(uid)
+
+            filepath = await loop.run_in_executor(
+                None, build_presentation, slide_data, exec_theme, premium, accent_hex
             )
             pack_label = "Executive 🏢"
+
 
         increment_usage(uid)
 
