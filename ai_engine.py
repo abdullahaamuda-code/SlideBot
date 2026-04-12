@@ -164,30 +164,39 @@ def generate_with_mistral(user_input: str, num_slides: int, max_retries: int = 3
     prompt = PROMPT_TEMPLATE.format(user_input=user_input, num_slides=num_slides)
     for attempt in range(1, max_retries + 1):
         try:
-            print(f"📡 [Mistral] Attempt {attempt}: mistral-large-latest")
+            print(f"[MISTRAL] Attempt {attempt}")
             response = mistral_client.chat.complete(
                 model="mistral-large-latest",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.9,
                 max_tokens=4000,
             )
-            text = clean_json(response.choices[0].message.content)
+
+            content = response.choices[0].message.content
+            print(f"[MISTRAL] Raw content preview: {content[:150]!r}")
+
+            text = clean_json(content)
             if not text:
-                print("❌ [Mistral] Empty response after cleaning")
+                print("[MISTRAL] Empty after clean_json → returning None")
                 return None
+
             data = json.loads(text)
-            print("✅ [Mistral] Success")
+            print("[MISTRAL] JSON parsed OK")
             return enforce_summary_and_bullets(data, user_input[:100])
+
         except Exception as e:
+            print("[MISTRAL] EXCEPTION type:", type(e))
+            print("[MISTRAL] EXCEPTION repr:", repr(e))
             msg = str(e)
-            print(f"❌ [Mistral] Error: {msg}")
+            print("[MISTRAL] EXCEPTION message:", msg)
             if "429" in msg and attempt < max_retries:
                 delay = _retry_delay(attempt)
-                print(f"⏳ [Mistral] Rate limited (429). Retrying in {delay:.1f}s...")
+                print(f"[MISTRAL] 429 → retrying in {delay:.1f}s")
                 time.sleep(delay)
                 continue
-            print("🚫 [Mistral] Giving up.")
+            print("[MISTRAL] Giving up, returning None")
             return None
+
 
 def generate_with_gemini(user_input: str, num_slides: int, max_retries: int = 3) -> Optional[dict]:
     prompt = PROMPT_TEMPLATE.format(user_input=user_input, num_slides=num_slides)
@@ -348,28 +357,39 @@ def ensure_intro_and_conclusion(slide_data: dict, topic: str, num_slides: int) -
 # ---------- Public API ----------
 
 def generate_slide_content(user_input: str, num_slides: int = 8) -> dict:
-    print(f"\n🎨 Generating {num_slides} slides for: {user_input[:80]}...")
-    print("➡️ Order: Groq → Mistral → Gemini → Python fallback")
+    print("=== [ENGINE] generate_slide_content called ===")
+    print(f"[ENGINE] num_slides={num_slides}")
+    print(f"[ENGINE] user_input_preview={user_input[:80]!r}")
 
     # 1️⃣ Groq
+    print("[ENGINE] STEP 1: Groq")
     result = generate_with_groq(user_input, num_slides)
     if result:
+        print("[ENGINE] RESULT: Groq SUCCESS")
         return ensure_intro_and_conclusion(result, user_input, num_slides)
+    print("[ENGINE] RESULT: Groq FAILED, moving to Mistral")
 
     # 2️⃣ Mistral
+    print("[ENGINE] STEP 2: Mistral")
     result = generate_with_mistral(user_input, num_slides)
     if result:
+        print("[ENGINE] RESULT: Mistral SUCCESS")
         return ensure_intro_and_conclusion(result, user_input, num_slides)
+    print("[ENGINE] RESULT: Mistral FAILED, moving to Gemini")
 
     # 3️⃣ Gemini
+    print("[ENGINE] STEP 3: Gemini")
     result = generate_with_gemini(user_input, num_slides)
     if result:
+        print("[ENGINE] RESULT: Gemini SUCCESS")
         return ensure_intro_and_conclusion(result, user_input, num_slides)
+    print("[ENGINE] RESULT: Gemini FAILED, using fallback")
 
-    # 4️⃣ Ultimate fallback
-    print("⚠️ All providers failed. Using Python fallback content.")
+    # 4️⃣ Fallback
     fallback = generate_fallback_content(user_input, num_slides)
+    print("[ENGINE] RESULT: Fallback used")
     return ensure_intro_and_conclusion(fallback, user_input, num_slides)
+
 
 def generate_from_text(raw_text: str, num_slides: int = 8) -> dict:
     """
