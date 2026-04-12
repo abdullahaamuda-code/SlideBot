@@ -5,14 +5,34 @@ from typing import Optional
 
 from dotenv import load_dotenv
 from google import genai
-from groq import Groq
 from mistralai.client import Mistral  # ✅ correct import
+from groq import Groq
 
 load_dotenv()
 
 gemini_client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
-groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 mistral_client = Mistral(api_key=os.getenv("MISTRAL_API_KEY"))
+
+# ── Groq key rotation ─────────────────────────────────────────────
+GROQ_KEYS = [
+    k for k in [
+        os.getenv("GROQ_API_KEY"),      # your current one (slot 1)
+        os.getenv("GROQ_API_KEY_2"),    # second account
+        os.getenv("GROQ_API_KEY_3"),    # third account
+    ]
+    if k
+]
+
+if not GROQ_KEYS:
+    raise RuntimeError("No Groq API keys configured (GROQ_API_KEY[_2,_3])")
+
+_groq_index = 0
+
+def _next_groq_client() -> Groq:
+    global _groq_index
+    key = GROQ_KEYS[_groq_index % len(GROQ_KEYS)]
+    _groq_index += 1
+    return Groq(api_key=key)
 
 PROMPT_TEMPLATE = """
 You are a world-class presentation designer and storyteller.
@@ -133,10 +153,12 @@ def _retry_delay(attempt: int, base: float = 1.0, max_delay: float = 8.0) -> flo
 
 def generate_with_groq(user_input: str, num_slides: int, max_retries: int = 3) -> Optional[dict]:
     prompt = PROMPT_TEMPLATE.format(user_input=user_input, num_slides=num_slides)
+
     for attempt in range(1, max_retries + 1):
         try:
-            print(f"📡 [Groq] Attempt {attempt}: llama-3.3-70b-versatile")
-            response = groq_client.chat.completions.create(
+            client = _next_groq_client()
+            print(f"📡 [Groq] Attempt {attempt} with rotated key: llama-3.3-70b-versatile")
+            response = client.chat.completions.create(
                 model="llama-3.3-70b-versatile",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.9,
@@ -149,6 +171,7 @@ def generate_with_groq(user_input: str, num_slides: int, max_retries: int = 3) -
             data = json.loads(text)
             print("✅ [Groq] Success")
             return enforce_summary_and_bullets(data, user_input[:100])
+
         except Exception as e:
             msg = str(e)
             print(f"❌ [Groq] Error: {msg}")
