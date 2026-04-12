@@ -734,6 +734,10 @@ async def start_generation(
         loop = asyncio.get_event_loop()
 
         # ── Generate slide content
+           try:
+        loop = asyncio.get_event_loop()
+
+        # ── Generate slide content
         if raw_text:
             slide_data = await asyncio.wait_for(
                 loop.run_in_executor(None, generate_from_text, raw_text, num_slides),
@@ -745,9 +749,20 @@ async def start_generation(
                 timeout=120
             )
 
-        if not slide_data or "slides" not in slide_data:
+        # NEW: all providers failed → peak load message
+        if not slide_data:
             await query.edit_message_text(
-                "❌ *The AI couldn't generate slides for this content.*\n\n"
+                "⏳ *SlideBot is at peak load right now.*\\n\\n"
+                "Please wait 2–3 minutes and try again —\\n"
+                "this helps us avoid low-quality, generic slides.",
+                parse_mode="Markdown"
+            )
+            return
+
+        # Existing check: slide_data exists but is malformed
+        if "slides" not in slide_data:
+            await query.edit_message_text(
+                "❌ *The AI couldn't generate slides for this content.*\\n\\n"
                 "Try uploading a shorter document or typing the topic directly.",
                 parse_mode="Markdown"
             )
