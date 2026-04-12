@@ -734,10 +734,6 @@ async def start_generation(
         loop = asyncio.get_event_loop()
 
         # ── Generate slide content
-           try:
-        loop = asyncio.get_event_loop()
-
-        # ── Generate slide content
         if raw_text:
             slide_data = await asyncio.wait_for(
                 loop.run_in_executor(None, generate_from_text, raw_text, num_slides),
@@ -752,8 +748,8 @@ async def start_generation(
         # NEW: all providers failed → peak load message
         if not slide_data:
             await query.edit_message_text(
-                "⏳ *SlideBot is at peak load right now.*\\n\\n"
-                "Please wait 2–3 minutes and try again —\\n"
+                "⏳ *SlideBot is at peak load right now.*\n\n"
+                "Please wait 2–3 minutes and try again —\n"
                 "this helps us avoid low-quality, generic slides.",
                 parse_mode="Markdown"
             )
@@ -762,7 +758,7 @@ async def start_generation(
         # Existing check: slide_data exists but is malformed
         if "slides" not in slide_data:
             await query.edit_message_text(
-                "❌ *The AI couldn't generate slides for this content.*\\n\\n"
+                "❌ *The AI couldn't generate slides for this content.*\n\n"
                 "Try uploading a shorter document or typing the topic directly.",
                 parse_mode="Markdown"
             )
@@ -774,7 +770,6 @@ async def start_generation(
         )
 
         # ── Build the file
-                # ── Build the file
         if premium and pack == "magazine":
             accent_hex = color or get_user_accent(uid) or "1E2761"
             filepath   = await loop.run_in_executor(
@@ -795,7 +790,6 @@ async def start_generation(
                 None, build_presentation, slide_data, exec_theme, premium, accent_hex
             )
             pack_label = "Executive 🏢"
-
 
         increment_usage(uid)
 
@@ -839,7 +833,6 @@ async def start_generation(
             "Please try again. If the issue persists, try typing the topic directly.",
             parse_mode="Markdown"
         )
-
 
 # ─────────────────────────────────────────────────────────────────
 #  MESSAGE HANDLER — text topics
