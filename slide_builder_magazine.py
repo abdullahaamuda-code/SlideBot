@@ -2,6 +2,7 @@ import os
 import uuid
 import random
 import requests
+import logging
 from io import BytesIO
 from dotenv import load_dotenv
 from pptx import Presentation
@@ -9,6 +10,8 @@ from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
 from PIL import Image, ImageDraw
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -61,24 +64,36 @@ def fetch_image(keyword):
         if UNSPLASH_KEY:
             r = requests.get(
                 "https://api.unsplash.com/photos/random",
-                params={"query": keyword, "orientation": "landscape",
-                        "content_filter": "high", "client_id": UNSPLASH_KEY},
-                timeout=12)
+                params={
+                    "query": keyword,
+                    "orientation": "landscape",
+                    "content_filter": "high",
+                    "client_id": UNSPLASH_KEY,
+                },
+                timeout=12,
+            )
             if r.status_code == 200:
                 url = r.json()["urls"]["regular"]
                 ir = requests.get(url, timeout=12)
                 if ir.status_code == 200:
                     return BytesIO(ir.content)
     except Exception as e:
-        print(f"Unsplash: {e}")
+        logger.warning(f"Unsplash: {e}")
 
     try:
         if PIXABAY_KEY:
             r = requests.get(
                 "https://pixabay.com/api/",
-                params={"key": PIXABAY_KEY, "q": keyword, "image_type": "photo",
-                        "orientation": "horizontal", "safesearch": "true", "per_page": 5},
-                timeout=12)
+                params={
+                    "key": PIXABAY_KEY,
+                    "q": keyword,
+                    "image_type": "photo",
+                    "orientation": "horizontal",
+                    "safesearch": "true",
+                    "per_page": 5,
+                },
+                timeout=12,
+            )
             if r.status_code == 200:
                 hits = r.json().get("hits", [])
                 if hits:
@@ -87,7 +102,8 @@ def fetch_image(keyword):
                     if ir.status_code == 200:
                         return BytesIO(ir.content)
     except Exception as e:
-        print(f"Pixabay: {e}")
+        logger.warning(f"Pixabay: {e}")
+
     return None
 
 
@@ -98,24 +114,27 @@ def process_image(stream, w_px=1200, h_px=900, radius=0):
         target = w_px / h_px
         if iw / ih > target:
             new_w = int(ih * target)
-            img = img.crop(((iw-new_w)//2, 0, (iw+new_w)//2, ih))
+            img = img.crop(((iw - new_w) // 2, 0, (iw + new_w) // 2, ih))
         else:
             new_h = int(iw / target)
-            img = img.crop((0, (ih-new_h)//2, iw, (ih+new_h)//2))
+            img = img.crop((0, (ih - new_h) // 2, iw, (ih + new_h) // 2))
         img = img.resize((w_px, h_px), Image.LANCZOS)
         if radius:
             mask = Image.new("L", (w_px, h_px), 0)
             ImageDraw.Draw(mask).rounded_rectangle(
-                [0, 0, w_px-1, h_px-1], radius=radius, fill=255)
+                [0, 0, w_px - 1, h_px - 1], radius=radius, fill=255
+            )
             img.putalpha(mask)
         out = BytesIO()
         img.save(out, format="PNG")
         out.seek(0)
         return out
     except Exception as e:
-        print(f"process_image: {e}")
-        try: stream.seek(0)
-        except: pass
+        logger.warning(f"process_image: {e}")
+        try:
+            stream.seek(0)
+        except Exception:
+            pass
         return stream
 
 
@@ -123,15 +142,17 @@ def darkened(stream, opacity=0.5):
     try:
         img = Image.open(stream).convert("RGBA")
         img = img.resize((1920, 1080), Image.LANCZOS)
-        overlay = Image.new("RGBA", img.size, (0, 0, 0, int(255*opacity)))
+        overlay = Image.new("RGBA", img.size, (0, 0, 0, int(255 * opacity)))
         out = BytesIO()
         Image.alpha_composite(img, overlay).save(out, format="PNG")
         out.seek(0)
         return out
     except Exception as e:
-        print(f"darkened: {e}")
-        try: stream.seek(0)
-        except: pass
+        logger.warning(f"darkened: {e}")
+        try:
+            stream.seek(0)
+        except Exception:
+            pass
         return stream
 
 
@@ -147,6 +168,7 @@ def bg(slide, color):
 def box(slide, l, t, w, h, color, radius=0):
     from pptx.oxml.ns import qn
     from lxml import etree
+
     shape = slide.shapes.add_shape(1, l, t, w, h)
     shape.fill.solid()
     shape.fill.fore_color.rgb = color
@@ -166,8 +188,20 @@ def box(slide, l, t, w, h, color, radius=0):
     return shape
 
 
-def txt(slide, text, l, t, w, h, size, color,
-        bold=False, italic=False, align=PP_ALIGN.LEFT, font="Georgia"):
+def txt(
+    slide,
+    text,
+    l,
+    t,
+    w,
+    h,
+    size,
+    color,
+    bold=False,
+    italic=False,
+    align=PP_ALIGN.LEFT,
+    font="Georgia",
+):
     tb = slide.shapes.add_textbox(l, t, w, h)
     tf = tb.text_frame
     tf.word_wrap = True
@@ -188,12 +222,12 @@ def pic(slide, stream, l, t, w, h):
         slide.shapes.add_picture(stream, l, t, w, h)
         return True
     except Exception as e:
-        print(f"pic: {e}")
+        logger.warning(f"pic: {e}")
         return False
 
 
 # ─────────────────────────────────────────────────────────────────
-# COVER — Clean & Elegant (No "SLIDE BOT PRESENTATION")
+# COVER — Clean & Elegant
 # ─────────────────────────────────────────────────────────────────
 def mag_cover(prs, title, accent, keyword):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
@@ -204,29 +238,32 @@ def mag_cover(prs, title, accent, keyword):
         dark = darkened(image, opacity=0.6)
         pic(slide, dark, 0, 0, SLIDE_W, SLIDE_H)
 
-    # Thick left accent strip
     box(slide, 0, 0, Inches(0.55), SLIDE_H, accent)
-
-    # Thin elegant top bar (no text) — looks much more premium
     box(slide, Inches(0.55), 0, SLIDE_W, Inches(0.08), MAG["black"])
 
-    # Giant editorial title
-    txt(slide, title,
-        Inches(0.85), Inches(1.0), Inches(10.5), Inches(4.6),
-        Pt(56), MAG["white"], bold=True, font="Georgia")
+    txt(
+        slide,
+        title,
+        Inches(0.85),
+        Inches(1.0),
+        Inches(10.5),
+        Inches(4.6),
+        Pt(56),
+        MAG["white"],
+        bold=True,
+        font="Georgia",
+    )
 
-    # Accent rule under title
     box(slide, Inches(0.85), Inches(5.8), Inches(3.5), Inches(0.07), accent)
 
 
 # ─────────────────────────────────────────────────────────────────
-# INTRO (kept as you had it — it's good)
+# INTRO
 # ─────────────────────────────────────────────────────────────────
 def mag_intro(prs, heading, description, bullets, accent, keyword):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     bg(slide, MAG["off_white"])
 
-    # Left black column with image
     box(slide, 0, 0, Inches(4.5), SLIDE_H, MAG["black"])
     image = fetch_image(keyword)
     if image:
@@ -234,48 +271,323 @@ def mag_intro(prs, heading, description, bullets, accent, keyword):
         pic(slide, proc, 0, 0, Inches(4.5), SLIDE_H)
     box(slide, 0, Inches(4.8), Inches(4.5), Inches(2.7), MAG["black"])
 
-    txt(slide, "INTRODUCTION",
-        Inches(0.2), Inches(5.15), Inches(4.0), Inches(0.45),
-        Pt(10), accent, bold=True, font="Calibri")
+    txt(
+        slide,
+        "INTRODUCTION",
+        Inches(0.2),
+        Inches(5.15),
+        Inches(4.0),
+        Inches(0.45),
+        Pt(10),
+        accent,
+        bold=True,
+        font="Calibri",
+    )
 
-    txt(slide, heading,
-        Inches(0.25), Inches(5.7), Inches(4.1), Inches(1.55),
-        Pt(21), MAG["white"], bold=True, font="Georgia")
+    txt(
+        slide,
+        heading,
+        Inches(0.25),
+        Inches(5.7),
+        Inches(4.1),
+        Inches(1.55),
+        Pt(21),
+        MAG["white"],
+        bold=True,
+        font="Georgia",
+    )
 
-    # Right: pull quote
     if description:
-        txt(slide, "\u201C",
-            Inches(4.8), Inches(0.2), Inches(1.5), Inches(1.4),
-            Pt(96), accent, bold=True, font="Georgia")
-        txt(slide, description,
-            Inches(4.8), Inches(1.25), Inches(8.2), Inches(1.85),
-            Pt(19), MAG["dark_gray"], italic=True, font="Georgia")
+        txt(
+            slide,
+            "\u201C",
+            Inches(4.8),
+            Inches(0.2),
+            Inches(1.5),
+            Inches(1.4),
+            Pt(96),
+            accent,
+            bold=True,
+            font="Georgia",
+        )
+        txt(
+            slide,
+            description,
+            Inches(4.8),
+            Inches(1.25),
+            Inches(8.2),
+            Inches(1.85),
+            Pt(19),
+            MAG["dark_gray"],
+            italic=True,
+            font="Georgia",
+        )
 
     box(slide, Inches(4.8), Inches(3.3), Inches(8.2), Inches(0.03), MAG["light_gray"])
 
     top = Inches(3.55)
     for bullet in bullets[:4]:
-        box(slide, Inches(4.8), top + Inches(0.12),
-            Inches(0.18), Inches(0.18), accent, radius=50000)
-        txt(slide, bullet,
-            Inches(5.2), top, Inches(7.8), Inches(0.6),
-            Pt(15), MAG["dark_gray"], font="Calibri")
+        box(
+            slide,
+            Inches(4.8),
+            top + Inches(0.12),
+            Inches(0.18),
+            Inches(0.18),
+            accent,
+            radius=50000,
+        )
+        txt(
+            slide,
+            bullet,
+            Inches(5.2),
+            top,
+            Inches(7.8),
+            Inches(0.6),
+            Pt(15),
+            MAG["dark_gray"],
+            font="Calibri",
+        )
         top += Inches(0.72)
 
 
 # ─────────────────────────────────────────────────────────────────
-# LAYOUTS 1–5 (unchanged — they are good)
+# CONTENT LAYOUTS 1–5
+# (simple but working editorial-ish layouts)
 # ─────────────────────────────────────────────────────────────────
-def mag_layout_1(prs, heading, bullets, accent, keyword): ...   # (keep your original)
-def mag_layout_2(prs, heading, bullets, accent, keyword): ...   # (keep)
-def mag_layout_3(prs, heading, bullets, accent, keyword): ...   # (keep)
-def mag_layout_4(prs, heading, bullets, accent, keyword): ...   # (keep)
-def mag_layout_5(prs, heading, bullets, accent, keyword): ...   # (keep)
+def mag_layout_1(prs, heading, bullets, accent, keyword):
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    bg(slide, MAG["off_white"])
 
-# I'll keep them short here for space — just copy your original versions for these 5 functions
+    txt(
+        slide,
+        heading,
+        Inches(0.7),
+        Inches(0.5),
+        Inches(11.0),
+        Inches(1.0),
+        Pt(40),
+        MAG["black"],
+        bold=True,
+        font="Georgia",
+    )
+
+    image = fetch_image(keyword)
+    if image:
+        proc = process_image(image, 900, 600, radius=40)
+        pic(slide, proc, Inches(0.7), Inches(1.7), Inches(6.5), Inches(3.8))
+
+    top = Inches(1.7)
+    for bullet in bullets[:4]:
+        box(
+            slide,
+            Inches(7.5),
+            top + Inches(0.10),
+            Inches(0.16),
+            Inches(0.16),
+            accent,
+            radius=50000,
+        )
+        txt(
+            slide,
+            bullet,
+            Inches(7.9),
+            top,
+            Inches(4.5),
+            Inches(0.7),
+            Pt(16),
+            MAG["dark_gray"],
+            font="Calibri",
+        )
+        top += Inches(0.8)
+
+
+def mag_layout_2(prs, heading, bullets, accent, keyword):
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    bg(slide, MAG["off_white"])
+
+    box(slide, 0, 0, SLIDE_W, Inches(0.5), MAG["black"])
+    txt(
+        slide,
+        heading,
+        Inches(0.8),
+        Inches(0.05),
+        Inches(11.0),
+        Inches(0.4),
+        Pt(28),
+        MAG["white"],
+        bold=True,
+        font="Georgia",
+    )
+
+    top = Inches(1.1)
+    col_split = len(bullets[:6]) // 2 or 2
+    col1 = bullets[:col_split]
+    col2 = bullets[col_split:6]
+
+    for b in col1:
+        txt(
+            slide,
+            f"\u2022 {b}",
+            Inches(0.8),
+            top,
+            Inches(5.5),
+            Inches(0.7),
+            Pt(18),
+            MAG["dark_gray"],
+            font="Calibri",
+        )
+        top += Inches(0.9)
+
+    top = Inches(1.1)
+    for b in col2:
+        txt(
+            slide,
+            f"\u2022 {b}",
+            Inches(7.0),
+            top,
+            Inches(5.3),
+            Inches(0.7),
+            Pt(18),
+            MAG["dark_gray"],
+            font="Calibri",
+        )
+        top += Inches(0.9)
+
+
+def mag_layout_3(prs, heading, bullets, accent, keyword):
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    bg(slide, MAG["off_white"])
+
+    txt(
+        slide,
+        heading,
+        Inches(0.8),
+        Inches(0.4),
+        Inches(11.0),
+        Inches(0.8),
+        Pt(32),
+        MAG["black"],
+        bold=True,
+        font="Georgia",
+    )
+
+    # 3-column editorial grid
+    cols = bullets[:3]
+    x_positions = [Inches(0.8), Inches(4.8), Inches(8.8)]
+    for i, (b, x) in enumerate(zip(cols, x_positions)):
+        box(
+            slide,
+            x,
+            Inches(1.5),
+            Inches(3.5),
+            Inches(4.7),
+            MAG["light_gray"],
+            radius=8000,
+        )
+        txt(
+            slide,
+            f"{i+1:02d}",
+            x + Inches(0.3),
+            Inches(1.7),
+            Inches(0.8),
+            Inches(0.6),
+            Pt(20),
+            accent,
+            bold=True,
+            font="Georgia",
+        )
+        txt(
+            slide,
+            b,
+            x + Inches(0.3),
+            Inches(2.2),
+            Inches(3.9),
+            Inches(2.8),
+            Pt(16),
+            MAG["dark_gray"],
+            font="Calibri",
+        )
+
+
+def mag_layout_4(prs, heading, bullets, accent, keyword):
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    bg(slide, MAG["black"])
+
+    image = fetch_image(keyword)
+    if image:
+        dark = darkened(image, opacity=0.55)
+        pic(slide, dark, 0, 0, SLIDE_W, SLIDE_H)
+
+    box(slide, 0, 0, SLIDE_W, Inches(0.4), MAG["black"])
+    txt(
+        slide,
+        heading,
+        Inches(0.8),
+        Inches(0.1),
+        Inches(11.0),
+        Inches(0.6),
+        Pt(30),
+        MAG["white"],
+        bold=True,
+        font="Georgia",
+    )
+
+    top = Inches(1.3)
+    for b in bullets[:5]:
+        txt(
+            slide,
+            f"\u2022 {b}",
+            Inches(0.9),
+            top,
+            Inches(11.5),
+            Inches(0.7),
+            Pt(18),
+            MAG["white"],
+            font="Calibri",
+        )
+        top += Inches(0.9)
+
+
+def mag_layout_5(prs, heading, bullets, accent, keyword):
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    bg(slide, MAG["off_white"])
+
+    txt(
+        slide,
+        heading,
+        Inches(0.8),
+        Inches(0.5),
+        Inches(11.0),
+        Inches(0.8),
+        Pt(32),
+        MAG["black"],
+        bold=True,
+        font="Georgia",
+    )
+
+    image = fetch_image(keyword)
+    if image:
+        proc = process_image(image, 900, 500, radius=30)
+        pic(slide, proc, Inches(0.8), Inches(1.6), Inches(11.0), Inches(3.2))
+
+    top = Inches(5.1)
+    for b in bullets[:4]:
+        txt(
+            slide,
+            f"\u2022 {b}",
+            Inches(0.9),
+            top,
+            Inches(11.0),
+            Inches(0.6),
+            Pt(18),
+            MAG["dark_gray"],
+            font="Calibri",
+        )
+        top += Inches(0.7)
+
 
 # ─────────────────────────────────────────────────────────────────
-# CONCLUSION — Clean (No watermark)
+# CONCLUSION
 # ─────────────────────────────────────────────────────────────────
 def mag_conclusion(prs, heading, description, bullets, accent, keyword):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
@@ -289,18 +601,46 @@ def mag_conclusion(prs, heading, description, bullets, accent, keyword):
     box(slide, 0, 0, Inches(0.55), SLIDE_H, accent)
 
     box(slide, Inches(0.8), Inches(0.32), Inches(2.1), Inches(0.44), accent)
-    txt(slide, "CONCLUSION",
-        Inches(0.83), Inches(0.32), Inches(2.1), Inches(0.44),
-        Pt(11), MAG["white"], bold=True, font="Calibri", align=PP_ALIGN.CENTER)
+    txt(
+        slide,
+        "CONCLUSION",
+        Inches(0.83),
+        Inches(0.32),
+        Inches(2.1),
+        Inches(0.44),
+        Pt(11),
+        MAG["white"],
+        bold=True,
+        font="Calibri",
+        align=PP_ALIGN.CENTER,
+    )
 
-    txt(slide, heading,
-        Inches(0.8), Inches(0.9), Inches(11.5), Inches(1.65),
-        Pt(42), MAG["white"], bold=True, font="Georgia")
+    txt(
+        slide,
+        heading,
+        Inches(0.8),
+        Inches(0.9),
+        Inches(11.5),
+        Inches(1.65),
+        Pt(42),
+        MAG["white"],
+        bold=True,
+        font="Georgia",
+    )
 
     if description:
-        txt(slide, f"\u201C{description}\u201D",
-            Inches(0.8), Inches(2.68), Inches(11.5), Inches(1.05),
-            Pt(17), RGBColor(0xCC, 0xCC, 0xCC), italic=True, font="Georgia")
+        txt(
+            slide,
+            f"\u201C{description}\u201D",
+            Inches(0.8),
+            Inches(2.68),
+            Inches(11.5),
+            Inches(1.05),
+            Pt(17),
+            RGBColor(0xCC, 0xCC, 0xCC),
+            italic=True,
+            font="Georgia",
+        )
 
     box(slide, Inches(0.8), Inches(3.88), Inches(11.5), Inches(0.04), accent)
 
@@ -308,41 +648,90 @@ def mag_conclusion(prs, heading, description, bullets, accent, keyword):
     col2 = bullets[2:4]
     top = Inches(4.1)
     for b in col1:
-        box(slide, Inches(0.8), top + Inches(0.12),
-            Inches(0.2), Inches(0.2), accent, radius=50000)
-        txt(slide, b, Inches(1.2), top, Inches(5.5), Inches(0.65),
-            Pt(15), MAG["white"], font="Calibri")
+        box(
+            slide,
+            Inches(0.8),
+            top + Inches(0.12),
+            Inches(0.2),
+            Inches(0.2),
+            accent,
+            radius=50000,
+        )
+        txt(
+            slide,
+            b,
+            Inches(1.2),
+            top,
+            Inches(5.5),
+            Inches(0.65),
+            Pt(15),
+            MAG["white"],
+            font="Calibri",
+        )
         top += Inches(0.85)
 
     top = Inches(4.1)
     for b in col2:
-        box(slide, Inches(7.1), top + Inches(0.12),
-            Inches(0.2), Inches(0.2), accent, radius=50000)
-        txt(slide, b, Inches(7.5), top, Inches(5.5), Inches(0.65),
-            Pt(15), MAG["white"], font="Calibri")
+        box(
+            slide,
+            Inches(7.1),
+            top + Inches(0.12),
+            Inches(0.2),
+            Inches(0.2),
+            accent,
+            radius=50000,
+        )
+        txt(
+            slide,
+            b,
+            Inches(7.5),
+            top,
+            Inches(5.5),
+            Inches(0.65),
+            Pt(15),
+            MAG["white"],
+            font="Calibri",
+        )
         top += Inches(0.85)
 
 
 # ─────────────────────────────────────────────────────────────────
-# THANK YOU — Subtle for Free, Clean for Premium
+# THANK YOU
 # ─────────────────────────────────────────────────────────────────
 def mag_thankyou(prs, accent, is_premium: bool = False):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     bg(slide, MAG["black"])
     box(slide, 0, 0, Inches(0.55), SLIDE_H, accent)
-   
-    txt(slide, "Thank\nYou",
-        Inches(0.9), Inches(1.5), Inches(10.0), Inches(4.2),
-        Pt(86), MAG["white"], bold=True, font="Georgia")
-   
+
+    txt(
+        slide,
+        "Thank\nYou",
+        Inches(0.9),
+        Inches(1.5),
+        Inches(10.0),
+        Inches(4.2),
+        Pt(86),
+        MAG["white"],
+        bold=True,
+        font="Georgia",
+    )
+
     box(slide, Inches(0.9), Inches(5.75), Inches(4.0), Inches(0.07), accent)
-   
-    # Only show for free users - small and subtle at bottom right
+
     if not is_premium:
-        txt(slide, "Created with SlideBot",
-            Inches(9.2), Inches(6.85), Inches(3.8), Inches(0.35),
-            Pt(9.5), MAG["mid_gray"], italic=True, font="Calibri",
-            align=PP_ALIGN.RIGHT)
+        txt(
+            slide,
+            "Created with SlideBot",
+            Inches(9.2),
+            Inches(6.85),
+            Inches(3.8),
+            Inches(0.35),
+            Pt(9.5),
+            MAG["mid_gray"],
+            italic=True,
+            font="Calibri",
+            align=PP_ALIGN.RIGHT,
+        )
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -354,7 +743,7 @@ def resolve_accent(color_input: str) -> RGBColor:
     c = color_input.strip().lower().lstrip("#")
     if len(c) == 6:
         try:
-            return RGBColor(int(c[0:2],16), int(c[2:4],16), int(c[4:6],16))
+            return RGBColor(int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16))
         except ValueError:
             pass
     key = COLOR_MAP.get(c)
@@ -367,15 +756,21 @@ def resolve_accent(color_input: str) -> RGBColor:
 # MAIN BUILDER
 # ─────────────────────────────────────────────────────────────────
 CONTENT_LAYOUTS = [
-    mag_layout_1, mag_layout_2, mag_layout_3,
-    mag_layout_4, mag_layout_5,
+    mag_layout_1,
+    mag_layout_2,
+    mag_layout_3,
+    mag_layout_4,
+    mag_layout_5,
 ]
 
 
 def build_magazine(slide_data: dict, color_input: str = "navy", is_premium: bool = False) -> str:
     accent = resolve_accent(color_input)
-    slides = slide_data.get("slides", [])
+    slides = slide_data.get("slides", []) or []
     title = slide_data.get("title", "My Presentation")
+
+    logger.info("MAG build: slides=%s, headings=%s",
+                len(slides), [s.get("heading") for s in slides])
 
     prs = Presentation()
     prs.slide_width = SLIDE_W
@@ -386,23 +781,39 @@ def build_magazine(slide_data: dict, color_input: str = "navy", is_premium: bool
 
     if slides:
         s0 = slides[0]
-        mag_intro(prs, s0.get("heading", "Introduction"),
-                  s0.get("description", ""),
-                  s0.get("bullets", []),
-                  accent, s0.get("image_keyword", "people"))
+        mag_intro(
+            prs,
+            s0.get("heading", "Introduction"),
+            s0.get("description", ""),
+            s0.get("bullets", []),
+            accent,
+            s0.get("image_keyword", "people"),
+        )
 
     content = slides[1:-1] if len(slides) > 2 else []
+    logger.info("MAG build: content_len=%s, content_headings=%s",
+                len(content), [s.get("heading") for s in content])
+
     for idx, s in enumerate(content):
         fn = CONTENT_LAYOUTS[idx % len(CONTENT_LAYOUTS)]
-        fn(prs, s.get("heading", ""), s.get("bullets", []),
-           accent, s.get("image_keyword", "business"))
+        fn(
+            prs,
+            s.get("heading", ""),
+            s.get("bullets", []),
+            accent,
+            s.get("image_keyword", "business"),
+        )
 
     if len(slides) > 1:
         sl = slides[-1]
-        mag_conclusion(prs, sl.get("heading", "Conclusion"),
-                       sl.get("description", ""),
-                       sl.get("bullets", []),
-                       accent, sl.get("image_keyword", "success"))
+        mag_conclusion(
+            prs,
+            sl.get("heading", "Conclusion"),
+            sl.get("description", ""),
+            sl.get("bullets", []),
+            accent,
+            sl.get("image_keyword", "success"),
+        )
 
     mag_thankyou(prs, accent, is_premium=is_premium)
 
@@ -410,5 +821,5 @@ def build_magazine(slide_data: dict, color_input: str = "navy", is_premium: bool
     filepath = os.path.join("outputs", filename)
     os.makedirs("outputs", exist_ok=True)
     prs.save(filepath)
-    print(f"✅ Magazine pack saved: {filepath}")
+    logger.info("✅ Magazine pack saved: %s", filepath)
     return filepath
