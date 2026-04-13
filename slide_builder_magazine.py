@@ -355,159 +355,220 @@ def mag_intro(prs, heading, description, bullets, accent, keyword):
 # (simple but working editorial-ish layouts)
 # ─────────────────────────────────────────────────────────────────
 def mag_layout_1(prs, heading, bullets, accent, keyword):
+    """
+    Hero image left, structured bullets right.
+    Feels like Executive layout A but with magazine colors + Georgia.
+    """
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     bg(slide, MAG["off_white"])
 
+    # Vertical accent strip
+    box(slide, 0, 0, Inches(0.4), SLIDE_H, accent)
+
+    # Heading
     txt(
         slide,
         heading,
-        Inches(0.7),
-        Inches(0.5),
-        Inches(11.0),
+        Inches(0.6),
+        Inches(0.6),
+        Inches(6.6),
         Inches(1.0),
-        Pt(40),
+        Pt(36),
         MAG["black"],
         bold=True,
         font="Georgia",
     )
 
+    # Left image block
     image = fetch_image(keyword)
     if image:
-        proc = process_image(image, 900, 600, radius=40)
-        pic(slide, proc, Inches(0.7), Inches(1.7), Inches(6.5), Inches(3.8))
-
-    top = Inches(1.7)
-    for bullet in bullets[:4]:
+        proc = process_image(image, 900, 650, radius=40)
+        pic(slide, proc, Inches(0.6), Inches(1.7), Inches(6.0), Inches(4.0))
+    else:
         box(
             slide,
-            Inches(7.5),
+            Inches(0.6),
+            Inches(1.7),
+            Inches(6.0),
+            Inches(4.0),
+            MAG["light_gray"],
+            radius=20000,
+        )
+
+    # Right label
+    txt(
+        slide,
+        "KEY INSIGHTS",
+        Inches(7.0),
+        Inches(1.7),
+        Inches(5.0),
+        Inches(0.4),
+        Pt(11),
+        MAG["mid_gray"],
+        bold=True,
+        font="Calibri",
+    )
+
+    # Right bullets
+    top = Inches(2.2)
+    for b in bullets[:5]:
+        box(
+            slide,
+            Inches(7.0),
             top + Inches(0.10),
-            Inches(0.16),
-            Inches(0.16),
+            Inches(0.18),
+            Inches(0.18),
             accent,
             radius=50000,
         )
         txt(
             slide,
-            bullet,
-            Inches(7.9),
+            b,
+            Inches(7.4),
             top,
-            Inches(4.5),
+            Inches(5.0),
             Inches(0.7),
-            Pt(16),
+            Pt(17),
             MAG["dark_gray"],
             font="Calibri",
         )
-        top += Inches(0.8)
+        top += Inches(0.9)
 
 
 def mag_layout_2(prs, heading, bullets, accent, keyword):
+    """
+    2x2 editorial card grid — like a magazine feature spread.
+    """
     slide = prs.slides.add_slide(prs.slide_layouts[6])
     bg(slide, MAG["off_white"])
 
-    box(slide, 0, 0, SLIDE_W, Inches(0.5), MAG["black"])
+    # Top bar + heading
+    box(slide, 0, 0, SLIDE_W, Inches(0.35), MAG["black"])
     txt(
         slide,
         heading,
-        Inches(0.8),
+        Inches(0.6),
         Inches(0.05),
-        Inches(11.0),
-        Inches(0.4),
+        Inches(11.2),
+        Inches(0.3),
         Pt(28),
         MAG["white"],
         bold=True,
         font="Georgia",
     )
 
-    top = Inches(1.1)
-    col_split = len(bullets[:6]) // 2 or 2
-    col1 = bullets[:col_split]
-    col2 = bullets[col_split:6]
+    card_w, card_h = Inches(6.1), Inches(2.6)
+    positions = [
+        (Inches(0.6), Inches(0.9)),
+        (Inches(7.0), Inches(0.9)),
+        (Inches(0.6), Inches(3.7)),
+        (Inches(7.0), Inches(3.7)),
+    ]
 
-    for b in col1:
-        txt(
-            slide,
-            f"\u2022 {b}",
-            Inches(0.8),
-            top,
-            Inches(5.5),
-            Inches(0.7),
-            Pt(18),
-            MAG["dark_gray"],
-            font="Calibri",
-        )
-        top += Inches(0.9)
-
-    top = Inches(1.1)
-    for b in col2:
-        txt(
-            slide,
-            f"\u2022 {b}",
-            Inches(7.0),
-            top,
-            Inches(5.3),
-            Inches(0.7),
-            Pt(18),
-            MAG["dark_gray"],
-            font="Calibri",
-        )
-        top += Inches(0.9)
-
-
-def mag_layout_3(prs, heading, bullets, accent, keyword):
-    slide = prs.slides.add_slide(prs.slide_layouts[6])
-    bg(slide, MAG["off_white"])
-
-    txt(
-        slide,
-        heading,
-        Inches(0.8),
-        Inches(0.4),
-        Inches(11.0),
-        Inches(0.8),
-        Pt(32),
-        MAG["black"],
-        bold=True,
-        font="Georgia",
-    )
-
-    # 3-column editorial grid
-    cols = bullets[:3]
-    x_positions = [Inches(0.8), Inches(4.8), Inches(8.8)]
-    for i, (b, x) in enumerate(zip(cols, x_positions)):
+    card_bullets = bullets[:4]
+    for i, (b, (x, y)) in enumerate(zip(card_bullets, positions)):
+        # Card background
         box(
             slide,
             x,
-            Inches(1.5),
-            Inches(3.5),
-            Inches(4.7),
-            MAG["light_gray"],
-            radius=8000,
+            y,
+            card_w,
+            card_h,
+            MAG["light_gray"] if i % 2 == 0 else MAG["off_white"],
+            radius=12000,
         )
+        # Number tag
         txt(
             slide,
             f"{i+1:02d}",
             x + Inches(0.3),
-            Inches(1.7),
-            Inches(0.8),
-            Inches(0.6),
+            y + Inches(0.25),
+            Inches(0.9),
+            Inches(0.5),
             Pt(20),
             accent,
             bold=True,
             font="Georgia",
         )
+        # Text
         txt(
             slide,
             b,
             x + Inches(0.3),
-            Inches(2.2),
-            Inches(3.9),
-            Inches(2.8),
-            Pt(16),
+            y + Inches(0.9),
+            card_w - Inches(0.6),
+            Inches(1.5),
+            Pt(15),
             MAG["dark_gray"],
             font="Calibri",
         )
 
+
+def mag_layout_3(prs, heading, bullets, accent, keyword):
+    """
+    Dark hero statement slide — big heading + two-column bullets on dark background.
+    """
+    slide = prs.slides.add_slide(prs.slide_layouts[6])
+    bg(slide, MAG["black"])
+
+    image = fetch_image(keyword)
+    if image:
+        dark = darkened(image, opacity=0.55)
+        pic(slide, dark, 0, 0, SLIDE_W, SLIDE_H)
+
+    # Top black bar ensures text always readable
+    box(slide, 0, 0, SLIDE_W, Inches(0.5), MAG["black"])
+    txt(
+        slide,
+        heading,
+        Inches(0.7),
+        Inches(0.1),
+        Inches(11.5),
+        Inches(0.8),
+        Pt(32),
+        MAG["white"],
+        bold=True,
+        font="Georgia",
+    )
+
+    # Semi‑transparent dark panel for content
+    box(slide, Inches(0.6), Inches(1.4), Inches(12.1), Inches(4.9), MAG["black"])
+
+    # Two-column bullets
+    visible = bullets[:6]
+    split = len(visible) // 2 or 2
+    col1 = visible[:split]
+    col2 = visible[split:]
+
+    top = Inches(1.7)
+    for b in col1:
+        txt(
+            slide,
+            f"• {b}",
+            Inches(0.9),
+            top,
+            Inches(5.6),
+            Inches(0.7),
+            Pt(17),
+            MAG["white"],
+            font="Calibri",
+        )
+        top += Inches(0.85)
+
+    top = Inches(1.7)
+    for b in col2:
+        txt(
+            slide,
+            f"• {b}",
+            Inches(6.7),
+            top,
+            Inches(5.6),
+            Inches(0.7),
+            Pt(17),
+            MAG["white"],
+            font="Calibri",
+        )
+        top += Inches(0.85)
 
 def mag_layout_4(prs, heading, bullets, accent, keyword):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
@@ -759,8 +820,6 @@ CONTENT_LAYOUTS = [
     mag_layout_1,
     mag_layout_2,
     mag_layout_3,
-    mag_layout_4,
-    mag_layout_5,
 ]
 
 
