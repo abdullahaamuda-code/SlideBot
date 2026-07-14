@@ -8,8 +8,8 @@ Built to simplify presentation creation by using AI to transform topics into str
 
 ## Tech Stack
 - **Framework:** Python
-- **AI Integration:** [Gemini/OpenAI/LLM details - adjust as needed]
-- **Automation:** [PowerPoint generation library details - e.g., python-pptx]
+- **AI Integration:** [Gemini/GROQ API]
+
 
 ---
 
