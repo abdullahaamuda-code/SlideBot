@@ -68,7 +68,7 @@ pip install -r requirements.txt
 # Set up your API keys (Gemini/GROQ)
 # Run the bot
 python bot.py
-
+```
 ---
 
 **Built with ❤️ by Abdullah A-Amuda**
