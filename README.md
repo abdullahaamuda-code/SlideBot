@@ -49,15 +49,6 @@
 
 ---
 
-## 👨‍💻 Developer
-
-**Abdullah A-Amuda**  
-Computer Engineering Student, ABU Zaria  
-Airtel Africa Foundation Fellow  
-[GitHub](https://github.com/abdullahaamuda-code)
-
----
-
 ## 🔗 Repository
 
 **[https://github.com/abdullahaamuda-code/SlideBot/](https://github.com/abdullahaamuda-code/SlideBot/)**
@@ -77,3 +68,7 @@ pip install -r requirements.txt
 # Set up your API keys (Gemini/GROQ)
 # Run the bot
 python bot.py
+
+---
+
+**Built with ❤️ by Abdullah A-Amuda**
