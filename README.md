@@ -1,74 +1,63 @@
-# 🚀 SlideBot
-### AI-Powered PowerPoint Slides Generator.
+# SlideBot
 
-**SlideBot** transforms simple text prompts into professional, structured PowerPoint presentations in seconds. Built for students, educators, and professionals who need to create compelling slide decks quickly.
+Text prompt in, structured PowerPoint deck out — in seconds.
 
----
+SlideBot turns a simple prompt into a real presentation: the model plans the slide
+flow (titles, bullets, sections), builders render it to `.pptx`, and a small database
+keeps your generation history. Built for students, educators, and professionals who
+need a finished deck fast.
 
-## 🧠 Tech Stack
+## How it works
 
-- **Language:** Python
-- **AI Integration:** Gemini / GROQ API (configurable)
-- **Output:** `.pptx` format via `python-pptx`
-- **Deployment Ready:** Includes `Procfile` for cloud hosting
+1. You give it a topic or a prompt.
+2. The AI engine (`ai_engine.py`, Gemini / Groq — configurable) structures the
+   content into a logical slide flow.
+3. The builder (`slide_builder.py`) renders the deck to `.pptx` via `python-pptx` —
+   standard and magazine-style templates.
 
----
+## Features
 
-## ✨ Key Features
+- **One command, one deck** — topic to finished slides, no manual assembly.
+- **AI structuring** — titles, bullets, and sections organized by the model.
+- **Multiple builders** — standard and magazine-style slide templates.
+- **Generation history** — every deck logged (`database.py`) for tracking and reuse.
+- **Deployment ready** — ships with a `Procfile` for cloud hosting.
 
-- **Instant Generation:** Go from topic to slide deck in one command.
-- **AI-Powered Structuring:** Automatically organizes content into logical slide flows with titles, bullet points, and sections.
-- **Multiple Builders:** Supports different slide templates (standard, magazine-style).
-- **Database Backend:** Stores generation history (via `database.py`) for tracking and reusability.
-- **Modular Design:** Clean separation of AI logic (`ai_engine.py`), slide construction (`slide_builder.py`), and bot interface (`bot.py`).
+## Use cases
 
----
+- **Academic** — lectures, projects, seminar decks.
+- **Business** — pitch decks and client reports.
+- **Content** — course material and talk prep.
+- **Prototyping** — visualize an idea in presentation form before building it.
 
-## 🎯 Use Cases
-
-- **Academic:** Students creating presentations for projects and lectures.
-- **Business:** Professionals drafting pitch decks and client reports.
-- **Content Creation:** Speakers and educators developing course materials.
-- **Rapid Prototyping:** Quickly visualize ideas in presentation format.
-
----
-
-## 🚦 Project Status
-
-**Active Development** — Core generation engine is functional, with ongoing enhancements to templates, AI integration, and user interface.
+## Status
 
 | Area | Status |
 |------|--------|
-| Core Generation | ✅ Functional |
-| AI Integration | ✅ Gemini/GROQ supported |
-| Slide Templates | ✅ Standard & Magazine styles |
-| Database Logging | ✅ Implemented |
-| Cloud Deployment | ✅ Configured (Procfile) |
-| Web Interface | 🔜 Planned |
-| Custom Templates | 🔜 Planned |
+| Core generation | working |
+| AI integration | Gemini / Groq |
+| Slide templates | standard & magazine |
+| Database logging | done |
+| Cloud deployment | configured (Procfile) |
+| Web interface | planned |
+| Custom templates | planned |
 
----
-
-## 🔗 Repository
-
-**[https://github.com/abdullahaamuda-code/SlideBot/](https://github.com/abdullahaamuda-code/SlideBot/)**
-
----
-
-## 🛠️ Local Setup
+## Setup
 
 ```bash
-# Clone the repository
 git clone https://github.com/abdullahaamuda-code/SlideBot.git
 cd SlideBot
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Set up your API keys (Gemini/GROQ)
-# Run the bot
+# add your Gemini/Groq keys, then:
 python bot.py
 ```
----
 
-**Built with ❤️ by Abdullah A-Amuda**
+## Why
+
+Deck assembly is mechanical work models do well — but only when the structure is
+decided first. SlideBot decides the structure, then lets the AI fill it. That's the
+difference between a deck and a dump.
+
+## License
+
+[MIT](LICENSE)
