@@ -61,3 +61,6 @@ difference between a deck and a dump.
 ## License
 
 [MIT](LICENSE)
+---
+
+Built by Abdullah A-Amuda.
